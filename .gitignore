@@ -1,0 +1,29 @@
+# Rekenresultaten, logs en tussenbestanden van Code-Aster/Mecway
+WorkDir/
+
+# Backup die het startscherm (bridge_gui.py) maakt bij opslaan
+*.bak
+
+# Office-lockbestanden
+~$*
+
+# Python
+*.pyc
+__pycache__/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Niet in de repo (auteursrecht Mecway Ltd / eigen werkdocument); lokaal houden
+API_reference Mecway.txt
+Mecway -- CodeAster.docx
+
+# Grote verificatiemodellen (lassen) die run_verificatie.py zelf opnieuw maakt
+TestFiles/Verificatie/modellen/WE-01.liml
+TestFiles/Verificatie/modellen/WE-01b.liml
+TestFiles/Verificatie/modellen/WE-05.liml
+TestFiles/Verificatie/modellen/WE-10b.liml
+
+# Uitvoer van run_verificatie.py --mecway-opslaan (alleen de vergelijking in de repo)
+TestFiles/Verificatie/resultaten/mecway/*
+!TestFiles/Verificatie/resultaten/mecway/vergelijking.md

@@ -1,0 +1,49 @@
+<liml version="33">
+  <analysis type="D31" />
+  <timesteps timeperiod="0.01 s" automatictimestepping="false" outputtimes="regular" timepointsstart="0 s" timepointsincrement="0.0001 s" />
+  <node nid="1" x="0" y="0" z="0" />
+  <node nid="2" x="0.01" y="0" z="0" />
+  <node nid="3" x="0.01" y="0.01" z="0" />
+  <node nid="4" x="0" y="0.01" z="0" />
+  <node nid="5" x="0" y="0" z="0.01" />
+  <node nid="6" x="0.01" y="0" z="0.01" />
+  <node nid="7" x="0.01" y="0.01" z="0.01" />
+  <node nid="8" x="0" y="0.01" z="0.01" />
+  <elset name="Staaf" material="Staal">
+    <elem eid="1" shape="hex8" nodes="1 2 3 4 5 6 7 8" />
+  </elset>
+  <displacement selection="SymX"><value>0 mm</value><x>1</x><y>0</y><z>0</z></displacement>
+  <displacement selection="SymY"><value>0 mm</value><x>0</x><y>1</y><z>0</z></displacement>
+  <displacement selection="SymZ"><value>0 mm</value><x>0</x><y>0</y><z>1</z></displacement>
+  <traction selection="EindX"><x time="0 s">0 Pa</x><x time="0.002 s">300000000 Pa</x><x time="0.004 s">-150000000 Pa</x><x time="0.006 s">250000000 Pa</x><x time="0.008 s">-50000000 Pa</x><x time="0.01 s">0 Pa</x><y>0 Pa</y><z>0 Pa</z></traction>
+  <ccxmodeldefinition>** ASTER-WOHLER Staal: S = [100, 150, 250, 400] MPa, N = [1e7, 2e6, 2e5, 1e4]
+** ASTER-POST WH_ = DEFI_FONCTION(NOM_PARA='SIGM', INTERPOL='LOG', VALE=(100000000.0, 10000000.0, 150000000.0, 2000000.0, 250000000.0, 200000.0, 400000000.0, 10000.0))
+** ASTER-POST MT_ = DEFI_MATERIAU(FATIGUE=_F(WOHLER=WH_))
+** ASTER-POST DM_ = CALC_FATIGUE(TYPE_CALCUL='CUMUL_DOMMAGE', OPTION='DOMA_ELNO_SIGM', HISTOIRE=_F(RESULTAT=res, EQUI_GD='VMIS_SG'), DOMMAGE='WOHLER', MATER=MT_)
+** ASTER-POST print('VERIF_CA_D', max(DM_.getValues()))</ccxmodeldefinition>
+  <mat name="Staal">
+    <mechanical type="Isotropic" youngsmodulus="210000 MPa" poissonratio="0.3" />
+    <density type="Simple" density="7850 kg/m³" />
+  </mat>
+  <nodeselection name="SymX">
+    <node nid="1" />
+    <node nid="4" />
+    <node nid="5" />
+    <node nid="8" />
+  </nodeselection>
+  <nodeselection name="SymY">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="5" />
+    <node nid="6" />
+  </nodeselection>
+  <nodeselection name="SymZ">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="3" />
+    <node nid="4" />
+  </nodeselection>
+  <faceselection name="EindX">
+    <face eid="1" faceid="4" />
+  </faceselection>
+</liml>

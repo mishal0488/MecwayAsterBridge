@@ -1,0 +1,103 @@
+<liml version="33">
+  <analysis type="S30" />
+  <node nid="1" x="0" y="0" z="0" />
+  <node nid="2" x="0.01" y="0" z="0" />
+  <node nid="3" x="0.01" y="0.01" z="0" />
+  <node nid="4" x="0" y="0.01" z="0" />
+  <node nid="5" x="0.01" y="0.02" z="0" />
+  <node nid="6" x="0" y="0.02" z="0" />
+  <node nid="7" x="0.02" y="0" z="0" />
+  <node nid="8" x="0.02" y="0.01" z="0" />
+  <node nid="9" x="0.02" y="0.02" z="0" />
+  <node nid="10" x="0.03" y="0" z="0" />
+  <node nid="11" x="0.03" y="0.01" z="0" />
+  <node nid="12" x="0.03" y="0.02" z="0" />
+  <node nid="13" x="0.04" y="0" z="0" />
+  <node nid="14" x="0.04" y="0.01" z="0" />
+  <node nid="15" x="0.04" y="0.02" z="0" />
+  <node nid="16" x="0.05" y="0" z="0" />
+  <node nid="17" x="0.05" y="0.01" z="0" />
+  <node nid="18" x="0.05" y="0.02" z="0" />
+  <node nid="19" x="0.06" y="0" z="0" />
+  <node nid="20" x="0.06" y="0.01" z="0" />
+  <node nid="21" x="0.06" y="0.02" z="0" />
+  <node nid="22" x="0.07" y="0" z="0" />
+  <node nid="23" x="0.07" y="0.01" z="0" />
+  <node nid="24" x="0.07" y="0.02" z="0" />
+  <node nid="25" x="0.08" y="0" z="0" />
+  <node nid="26" x="0.08" y="0.01" z="0" />
+  <node nid="27" x="0.08" y="0.02" z="0" />
+  <node nid="28" x="0.09" y="0" z="0" />
+  <node nid="29" x="0.09" y="0.01" z="0" />
+  <node nid="30" x="0.09" y="0.02" z="0" />
+  <node nid="31" x="0.1" y="0" z="0" />
+  <node nid="32" x="0.1" y="0.01" z="0" />
+  <node nid="33" x="0.1" y="0.02" z="0" />
+  <elset name="Plaat" material="Plaat2">
+    <elem eid="1" shape="quad4" nodes="1 2 3 4" />
+    <elem eid="2" shape="quad4" nodes="4 3 5 6" />
+    <elem eid="3" shape="quad4" nodes="2 7 8 3" />
+    <elem eid="4" shape="quad4" nodes="3 8 9 5" />
+    <elem eid="5" shape="quad4" nodes="7 10 11 8" />
+    <elem eid="6" shape="quad4" nodes="8 11 12 9" />
+    <elem eid="7" shape="quad4" nodes="10 13 14 11" />
+    <elem eid="8" shape="quad4" nodes="11 14 15 12" />
+    <elem eid="9" shape="quad4" nodes="13 16 17 14" />
+    <elem eid="10" shape="quad4" nodes="14 17 18 15" />
+    <elem eid="11" shape="quad4" nodes="16 19 20 17" />
+    <elem eid="12" shape="quad4" nodes="17 20 21 18" />
+    <elem eid="13" shape="quad4" nodes="19 22 23 20" />
+    <elem eid="14" shape="quad4" nodes="20 23 24 21" />
+    <elem eid="15" shape="quad4" nodes="22 25 26 23" />
+    <elem eid="16" shape="quad4" nodes="23 26 27 24" />
+    <elem eid="17" shape="quad4" nodes="25 28 29 26" />
+    <elem eid="18" shape="quad4" nodes="26 29 30 27" />
+    <elem eid="19" shape="quad4" nodes="28 31 32 29" />
+    <elem eid="20" shape="quad4" nodes="29 32 33 30" />
+  </elset>
+  <moment selection="M0_0"><x>0 N.m</x><y>-0.5 N.m</y><z>0 N.m</z></moment>
+  <moment selection="M0_1"><x>0 N.m</x><y>-1 N.m</y><z>0 N.m</z></moment>
+  <moment selection="M0_2"><x>0 N.m</x><y>-0.5 N.m</y><z>0 N.m</z></moment>
+  <moment selection="M1_0"><x>0 N.m</x><y>0.5 N.m</y><z>0 N.m</z></moment>
+  <moment selection="M1_1"><x>0 N.m</x><y>1 N.m</y><z>0 N.m</z></moment>
+  <moment selection="M1_2"><x>0 N.m</x><y>0.5 N.m</y><z>0 N.m</z></moment>
+  <displacement selection="P1"><value>0 mm</value><x>1</x><y>0</y><z>0</z></displacement>
+  <displacement selection="P1"><value>0 mm</value><x>0</x><y>1</y><z>0</z></displacement>
+  <displacement selection="P1"><value>0 mm</value><x>0</x><y>0</y><z>1</z></displacement>
+  <displacement selection="P2"><value>0 mm</value><x>0</x><y>1</y><z>0</z></displacement>
+  <displacement selection="P2"><value>0 mm</value><x>0</x><y>0</y><z>1</z></displacement>
+  <displacement selection="P3"><value>0 mm</value><x>0</x><y>0</y><z>1</z></displacement>
+  <ccxmodeldefinition>** ASTER-WOHLER Plaat2: Sf = 900 MPa, b = -0.1, Su = 600 MPa, correctie = GOODMAN
+** ASTER-BLOK 0.5, 0.5, 1e5</ccxmodeldefinition>
+  <mat name="Plaat2">
+    <geometric type="Plate" thickness="0.002 m" />
+    <mechanical type="Isotropic" youngsmodulus="210000 MPa" poissonratio="0.3" />
+  </mat>
+  <nodeselection name="M0_0">
+    <node nid="1" />
+  </nodeselection>
+  <nodeselection name="M0_1">
+    <node nid="4" />
+  </nodeselection>
+  <nodeselection name="M0_2">
+    <node nid="6" />
+  </nodeselection>
+  <nodeselection name="M1_0">
+    <node nid="31" />
+  </nodeselection>
+  <nodeselection name="M1_1">
+    <node nid="32" />
+  </nodeselection>
+  <nodeselection name="M1_2">
+    <node nid="33" />
+  </nodeselection>
+  <nodeselection name="P1">
+    <node nid="1" />
+  </nodeselection>
+  <nodeselection name="P2">
+    <node nid="31" />
+  </nodeselection>
+  <nodeselection name="P3">
+    <node nid="6" />
+  </nodeselection>
+</liml>

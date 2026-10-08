@@ -1,0 +1,37 @@
+<liml version="33">
+  <analysis type="V30" maxmode="2" />
+  <node nid="1" x="0" y="0" z="0" />
+  <node nid="2" x="1" y="0" z="0" />
+  <node nid="3" x="2" y="0" z="0" />
+  <elset name="Veer1" material="Veer1">
+    <elem eid="1" shape="line2" nodes="1 2" />
+  </elset>
+  <elset name="Veer2" material="Veer2">
+    <elem eid="2" shape="line2" nodes="2 3" />
+  </elset>
+  <fixed selection="Grond" />
+  <displacement selection="Massa"><value>0 m</value><x>0</x><y>1</y><z>0</z></displacement>
+  <displacement selection="Massa"><value>0 m</value><x>0</x><y>0</y><z>1</z></displacement>
+  <mass2 selection="M1"><value>100.0 kg</value></mass2>
+  <mass2 selection="M2"><value>5.0 kg</value></mass2>
+  <gravity><x time="0.0 s">2.0 m/s²</x><x time="0.1 s">8.0 m/s²</x><x time="0.3 s">5.0 m/s²</x><x time="2.0 s">1.0 m/s²</x><y>0 m/s²</y><z>0 m/s²</z></gravity>
+  <mat name="Veer1">
+    <mechanical type="Spring" springconstant="100000.0 N/m" />
+  </mat>
+  <mat name="Veer2">
+    <mechanical type="Spring" springconstant="4535.14739229025 N/m" />
+  </mat>
+  <nodeselection name="Grond">
+    <node nid="1" />
+  </nodeselection>
+  <nodeselection name="Massa">
+    <node nid="2" />
+    <node nid="3" />
+  </nodeselection>
+  <nodeselection name="M1">
+    <node nid="2" />
+  </nodeselection>
+  <nodeselection name="M2">
+    <node nid="3" />
+  </nodeselection>
+</liml>

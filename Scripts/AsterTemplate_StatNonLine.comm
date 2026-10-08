@@ -1,0 +1,222 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor STAT_NON_LINE (niet-lineair-statische analyse).
+# Compatibel met Code-Aster v16 en v17.
+# Invulling via Python str.format() vanuit bridge_to_aster.py
+# (_build_nonlin_static).
+#
+# Ondersteunde fysica:
+#   - Plasticiteit: VMIS_ISOT_TRAC (hardingscurve), VMIS_ISOT_LINE /
+#     VMIS_CINE_LINE (bilineair)
+#   - Bezwijken van elementen (bridge_failure.py: lus over de tijdstappen)
+#   - Tijdsafhankelijke krachten via DEFI_FONCTION + AFFE_CHAR_MECA_F
+#   - Constante BC's (constraints, gravity, pressure, couplings)
+#
+# Placeholders (worden ingevuld door bridge_to_aster.py via str.format).
+# In dit bronbestand staan ze als naam tussen enkele accolades; in de
+# gegenereerde study.comm zijn ze vervangen door de werkelijke Code-Aster code:
+#
+#   defigroup_block      -> DEFI_GROUP (coupling-slaves, knoopgroepen,
+#                           samengevoegde contactvlakken), evt.
+#                           CREA_MAILLAGE / MODI_MAILLAGE (zie
+#                           MecaStatique-template)
+#   model_block          -> AFFE_MODELE per elset
+#   cara_elem_block      -> AFFE_CARA_ELEM balk-/schaal-/veer-/POI1-
+#                           eigenschappen (of commentaar)
+#   plastic_curves_block -> DEFI_FONCTION per plastische hardingscurve
+#                           (of commentaar)
+#   materials_block      -> DEFI_MATERIAU per materiaal (ELAS, + TRACTION
+#                           bij een hardingscurve)
+#   fieldmat_block       -> AFFE_MATERIAU toewijzing
+#   load_funcs_block     -> DEFI_FONCTION per tijdsafhankelijke kracht
+#                           (of commentaar)
+#   listinst_block       -> DEFI_LIST_REEL + DEFI_LIST_INST voor de
+#                           tijdsdiscretisatie
+#   loads_const_block    -> lasten load_1, load_2, ...: AFFE_CHAR_MECA
+#                           met randvoorwaarden en couplings, daarna een
+#                           last per belasting; tijdsafhankelijke delen als
+#                           AFFE_CHAR_MECA_F of met FONC_MULT in EXCIT
+#   statnonline_block    -> STAT_NON_LINE aanroep (compleet, incl.
+#                           CARA_ELEM, COMPORTEMENT en SOLVEUR), of de
+#                           bezwijklus (bridge_failure.build_solve_block)
+#   calc_champ_block     -> CALC_CHAMP (+ POST_CHAMP voor schalen) met
+#                           optionele EPSP_NOEU/VARI_NOEU
+#   postreleve_block     -> POST_RELEVE_T tabellen (route 'tabel',
+#                           INST=t_res), of aster_results_export (route
+#                           'liml', alle gearchiveerde tijdstappen)
+#   impr_table_block     -> IMPR_TABLE aanroepen
+#
+# LETOP accolades in dit bronbestand:
+#   Code-Aster .comm-syntax gebruikt GEEN accolades, dus normaal hoeft
+#   er niets ge-escaped te worden. Voeg je ooit een accolade toe die
+#   GEEN placeholder is, verdubbel deze dan ({{ of }}) zodat str.format()
+#   er geen KeyError op gooit.
+
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH INLEZEN
+# FORMAT='ASTER': mesh rechtstreeks uit de .liml (bridge_mesh.py)
+# UNITE=20 komt overeen met 'F mail ... D 20' in study.export
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+# =====================================================
+# 2. STANDAARD GROEPEN AANMAKEN (alle elementen / knopen)
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+# =====================================================
+# 2b. KNOOPGROEPEN VOOR RANDVOORWAARDEN (en mesh-aanpassingen)
+# Gegenereerd door _build_defigroup_block(), zelfde als MECA_STATIQUE.
+# =====================================================
+{defigroup_block}
+
+# =====================================================
+# 3. MODEL DEFINITIE
+# Per elset wordt de bijbehorende MODELISATION gekozen:
+#   1D (line2)              -> POU_D_E   (Euler-balk; alleen SEG2)
+#   2D lineair (tri3/quad4)       -> DKT
+#   2D kwadratisch (tri6/quad8)   -> COQUE_3D (na CREA_MAILLAGE MODI_MAILLE)
+#   veren (1D met veer-materiaal) -> DIS_T
+#   vlakken met druk (op volume)  -> 3D (randelementen)
+#   losse knopen (POI1)           -> DIS_T / DIS_TR (zie bridge_mesh.py)
+#   3D (hex/tet/wedge/...)  -> 3D
+# Zonder elsets, drukvlakken en POI1-knopen wordt TOUT='OUI',
+# MODELISATION='3D' gebruikt.
+# =====================================================
+{model_block}
+
+# =====================================================
+# 3b. SECTIE-EIGENSCHAPPEN (balken, schalen, veren)
+# =====================================================
+{cara_elem_block}
+
+# =====================================================
+# 3c. PLASTISCHE HARDINGSCURVES  (DEFI_FONCTION)
+# Per materiaal met <plastic>-blok in Mecway wordt een tractiefunctie
+# gedefinieerd. Code-Aster TRACTION / VMIS_ISOT_TRAC (U4.43.01 par. 5.1.1):
+#   - NOM_PARA='EPSI' : TOTALE rek
+#   - NOM_RESU='SIGM' : spanning
+#   - De ordinaat van het eerste punt is de elastische grens; een punt
+#     met abscis nul is NIET toegestaan. Het eerste punt is dus
+#     (sigma_y / E, sigma_y).
+#
+# De omrekening vanuit Mecway gebeurt in bridge_to_aster.py
+# (_to_aster_traction_curve), gestuurd door 'plastic_strain_definition'
+# in CONFIG_BRIDGE: 'plastic' -> EPSI = eps_p + sigma/E,
+# 'total' -> beginpunt (0, 0) vervalt, 'auto' -> afgeleid uit het
+# eerste punt. Ongeldige curves stoppen de generatie met een ERROR in
+# bridge_log.txt.
+# =====================================================
+{plastic_curves_block}
+
+# =====================================================
+# 4. MATERIAAL-DEFINITIE
+# DEFI_MATERIAU met ELAS (altijd) en TRACTION (alleen bij plastische
+# materialen). RHO wordt altijd opgenomen voor PESANTEUR-compatibiliteit.
+# =====================================================
+{materials_block}
+
+# =====================================================
+# 5. MATERIAAL-TOEWIJZING
+# =====================================================
+{fieldmat_block}
+
+# =====================================================
+# 6a. TIJDSAFHANKELIJKE BELASTINGS-FUNCTIES  (DEFI_FONCTION)
+# Per <force>-component met time-attribuut wordt een functie van INST
+# gedefinieerd. Extrapolatie buiten het gedefinieerde tijdsdomein is
+# constant aan beide zijden.
+# =====================================================
+{load_funcs_block}
+
+# =====================================================
+# 6b. TIJDSDISCRETISATIE  (DEFI_LIST_REEL + DEFI_LIST_INST)
+# Tijdspunten van het eerste tot het laatste tijdspunt van alle
+# tijdsafhankelijke krachten, met substeps_per_interval substeps per
+# segment voor robuuste Newton-Raphson convergentie. Zonder
+# tijdsafhankelijke krachten: 0 tot default_time_end. DEFI_LIST_INST knipt
+# een stap die niet convergeert (ECHEC DECOUPE).
+# =====================================================
+{listinst_block}
+
+# =====================================================
+# 7. RANDVOORWAARDEN EN BELASTINGEN  (AFFE_CHAR_MECA / _F)
+# load_1: randvoorwaarden (DDL_IMPO, LIAISON_*) en couplings; daarna een
+# last per belasting (FORCE_*, PRES_REP, PESANTEUR), omdat Code-Aster
+# belastingen binnen een last overschrijft i.p.v. optelt. Componenten met
+# een tijdshistorie verwijzen naar de DEFI_FONCTION's uit stap 6a
+# (AFFE_CHAR_MECA_F, of FONC_MULT in EXCIT voor een moment op vlakken).
+# =====================================================
+{loads_const_block}
+
+# =====================================================
+# 8. SOLVER: NIET-LINEAIR STATISCH  (STAT_NON_LINE)
+# Lost het niet-lineaire krachtevenwicht op via Newton-Raphson:
+#
+#   CARA_ELEM     - alleen als stap 3b een AFFE_CARA_ELEM bevat.
+#   EXCIT         - alle lasten uit stap 7 (load_1, load_2, ...).
+#   COMPORTEMENT  - per elset (en POI1-groep): RELATION ('ELAS',
+#                   'VMIS_ISOT_TRAC', 'VMIS_ISOT_LINE', 'VMIS_CINE_LINE',
+#                   'CABLE' of voor gaps 'DIS_CHOC') en DEFORMATION uit
+#                   CONFIG_BRIDGE ("deformation", standaard 'GROT_GDEP';
+#                   per elset de vorm die Code-Aster accepteert,
+#                   bridge_to_aster._deformation_for). Zonder elsets:
+#                   TOUT='OUI', 'ELAS'.
+#   INCREMENT     - LIST_INST koppelt aan listinst (stap 6b).
+#   SOLVEUR       - MUMPS met NPREC uit CONFIG_BRIDGE ("solver_nprec").
+#   NEWTON        - REAC_ITER uit CONFIG_BRIDGE ("newton_reac_iter",
+#                   standaard 1 = tangente matrix elke iteratie).
+#   CONVERGENCE   - RESI_GLOB_RELA en ITER_GLOB_MAXI uit CONFIG_BRIDGE
+#                   ("convergence_resi_rela", "newton_max_iter").
+# =====================================================
+{statnonline_block}
+
+# =====================================================
+# 9. POST-PROCESSING VELDEN BEREKENEN  (CALC_CHAMP)
+# Zelfde velden als MECA_STATIQUE; heeft minstens een materiaal een
+# hardingscurve, dan komen er op de 3D-elsets bij:
+#   EPSP_NOEU  - plastische strain tensor
+#   VARI_NOEU  - interne variabelen (V1 = eq. plastische strain)
+# =====================================================
+{calc_champ_block}
+
+# =====================================================
+# 10. RESULTAAT-EXTRACTIE
+# Route 'liml' (standaard): aster_results_export schrijft alle
+# gearchiveerde tijdstappen in Mecway's formaat. Route 'tabel':
+# POST_RELEVE_T op het laatst bereikte tijdstip (INST=t_res; bij
+# niet-convergentie eerder dan t_end).
+# =====================================================
+{postreleve_block}
+
+# =====================================================
+# 11. TABELLEN WEGSCHRIJVEN NAAR .resu  (IMPR_TABLE)
+# UNITE=8 -> 'F resu ... R 8' in study.export
+# =====================================================
+{impr_table_block}
+
+# =====================================================
+# 12. EXPORT NAAR MED-FORMAAT (ParaView / Salome), alleen met de
+# instelling "med_export" (bridge_to_aster._build_impr_resu_block;
+# UNITE=80 -> 'F rmed ... R 80' in study.export). Mecway krijgt de
+# resultaten via de .liml of de tabellen, niet via een exportbestand.
+# =====================================================
+{impr_resu_block}
+
+FIN()

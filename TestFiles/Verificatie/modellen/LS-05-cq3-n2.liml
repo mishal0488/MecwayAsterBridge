@@ -1,0 +1,111 @@
+<liml version="33">
+  <analysis type="S30" />
+  <node nid="1" x="2" y="0" z="0" />
+  <node nid="2" x="2.15625" y="0" z="0" />
+  <node nid="3" x="2.3125" y="0" z="0" />
+  <node nid="4" x="2.30136468043" y="0.140899639224" z="0" />
+  <node nid="5" x="2.26806596093" y="0.280442337898" z="0" />
+  <node nid="6" x="2.11481826087" y="0.237766329957" z="0" />
+  <node nid="7" x="1.96157056081" y="0.195090322016" z="0" />
+  <node nid="8" x="1.99036945334" y="0.0980171403296" z="0" />
+  <node nid="9" x="2.15107393878" y="0.527660158568" z="0" />
+  <node nid="10" x="1.96495551268" y="0.757921217031" z="0" />
+  <node nid="11" x="1.83218824831" y="0.642585379657" z="0" />
+  <node nid="12" x="1.69942098394" y="0.527249542282" z="0" />
+  <node nid="13" x="1.86038827138" y="0.367067936395" z="0" />
+  <node nid="14" x="1.63123382494" y="1.01891586152" z="0" />
+  <node nid="15" x="1.20976716918" y="1.22510245928" z="0" />
+  <node nid="16" x="1.12802614424" y="1.03867382418" z="0" />
+  <node nid="17" x="1.04628511929" y="0.852245189067" z="0" />
+  <node nid="18" x="1.41079682157" y="0.708811034099" z="0" />
+  <node nid="19" x="0.628546711929" y="1.38338191314" z="0" />
+  <node nid="20" x="1.41599786151e-16" y="1.4375" z="0" />
+  <node nid="21" x="1.32032233033e-16" y="1.21875" z="0" />
+  <node nid="22" x="1.22464679915e-16" y="1" z="0" />
+  <node nid="23" x="0.543607967074" y="0.96235263523" z="0" />
+  <node nid="24" x="2.78125" y="0" z="0" />
+  <node nid="25" x="3.25" y="0" z="0" />
+  <node nid="26" x="3.23435036168" y="0.269547135906" z="0" />
+  <node nid="27" x="3.18755216131" y="0.536498385544" z="0" />
+  <node nid="28" x="2.72780906112" y="0.408470361721" z="0" />
+  <node nid="29" x="3.02313094099" y="1.00943682509" z="0" />
+  <node nid="30" x="2.7615590989" y="1.44993624128" z="0" />
+  <node nid="31" x="2.36325730579" y="1.10392872915" z="0" />
+  <node nid="32" x="2.29254483505" y="1.94923034377" z="0" />
+  <node nid="33" x="1.70021331885" y="2.34367426993" z="0" />
+  <node nid="34" x="1.45499024401" y="1.78438836461" z="0" />
+  <node nid="35" x="0.883362946495" y="2.64646974688" z="0" />
+  <node nid="36" x="1.99005104861e-16" y="2.75" z="0" />
+  <node nid="37" x="1.70302445506e-16" y="2.09375" z="0" />
+  <elset name="Membraan" material="Plaat">
+    <elem eid="1" shape="quad8" nodes="1 2 3 4 5 6 7 8" />
+    <elem eid="2" shape="quad8" nodes="7 6 5 9 10 11 12 13" />
+    <elem eid="3" shape="quad8" nodes="12 11 10 14 15 16 17 18" />
+    <elem eid="4" shape="quad8" nodes="17 16 15 19 20 21 22 23" />
+    <elem eid="5" shape="quad8" nodes="3 24 25 26 27 28 5 4" />
+    <elem eid="6" shape="quad8" nodes="5 28 27 29 30 31 10 9" />
+    <elem eid="7" shape="quad8" nodes="10 31 30 32 33 34 15 14" />
+    <elem eid="8" shape="quad8" nodes="15 34 33 35 36 37 20 19" />
+  </elset>
+  <surfacepressure selection="Buitenrand"><normal>-1e+07 Pa</normal></surfacepressure>
+  <symmetry selection="SymY0"><x>0</x><y>1</y><z>0</z></symmetry>
+  <symmetry selection="SymX0"><x>1</x><y>0</y><z>0</z></symmetry>
+  <displacement selection="Alle"><value>0 m</value><x>0</x><y>0</y><z>1</z></displacement>
+  <mat name="Plaat">
+    <geometric type="Plate" thickness="0.1 m" />
+    <mechanical type="Isotropic" youngsmodulus="210000 MPa" poissonratio="0.3" />
+  </mat>
+  <faceselection name="Buitenrand">
+    <face eid="5" faceid="2" />
+    <face eid="6" faceid="2" />
+    <face eid="7" faceid="2" />
+    <face eid="8" faceid="2" />
+  </faceselection>
+  <faceselection name="SymY0">
+    <face eid="1" faceid="1" />
+    <face eid="5" faceid="1" />
+  </faceselection>
+  <faceselection name="SymX0">
+    <face eid="4" faceid="3" />
+    <face eid="8" faceid="3" />
+  </faceselection>
+  <nodeselection name="Alle">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="3" />
+    <node nid="4" />
+    <node nid="5" />
+    <node nid="6" />
+    <node nid="7" />
+    <node nid="8" />
+    <node nid="9" />
+    <node nid="10" />
+    <node nid="11" />
+    <node nid="12" />
+    <node nid="13" />
+    <node nid="14" />
+    <node nid="15" />
+    <node nid="16" />
+    <node nid="17" />
+    <node nid="18" />
+    <node nid="19" />
+    <node nid="20" />
+    <node nid="21" />
+    <node nid="22" />
+    <node nid="23" />
+    <node nid="24" />
+    <node nid="25" />
+    <node nid="26" />
+    <node nid="27" />
+    <node nid="28" />
+    <node nid="29" />
+    <node nid="30" />
+    <node nid="31" />
+    <node nid="32" />
+    <node nid="33" />
+    <node nid="34" />
+    <node nid="35" />
+    <node nid="36" />
+    <node nid="37" />
+  </nodeselection>
+</liml>

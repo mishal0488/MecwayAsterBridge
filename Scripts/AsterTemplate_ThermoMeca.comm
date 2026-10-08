@@ -1,0 +1,133 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor de keten thermisch -> mechanisch (lassen: restspanning en
+# vervorming; Mecway T31 met een Thermal stress): eerst THER_LINEAIRE /
+# THER_NON_LINE zoals AsterTemplate_Thermique.comm (bridge_thermal.py),
+# daarna STAT_NON_LINE met de temperatuur als commandovariabele
+# (AFFE_VARC NOM_VARC='TEMP', EVOL = het thermische resultaat;
+# bridge_thermomech.py). Syntaxbron: testcase hsnv100e (Code-Aster 17.4).
+#
+# Temperaturen staan in graden CELSIUS (zie de thermische template);
+# VALE_REF en de materiaalfuncties van TEMP dus ook.
+#
+# Placeholders (naam tussen enkele accolades):
+#   thermisch: defigroup_block, model_block, materials_block,
+#     fieldmat_block, funcs_block, listinst_block, loads_block, solve_block,
+#     calc_champ_block (zie AsterTemplate_Thermique.comm)
+#   mechanisch (bridge_thermomech.build_blocks):
+#     mech_defigroup_block  -> res_ther = res (thermisch resultaat), DEFI_GROUP
+#                              voor de randvoorwaarden, eventueel LINE_QUAD +
+#                              PROJ_CHAMP van de temperatuur
+#     mech_model_block      -> AFFE_MODELE (MECANIQUE)
+#     mech_materials_block  -> DEFI_FONCTION/DEFI_CONSTANTE van TEMP,
+#                              DEFI_MATERIAU (ELAS of ELAS_FO, ECRO_LINE(_FO)
+#                              of TRACTION)
+#     mech_fieldmat_block   -> AFFE_MATERIAU met AFFE_VARC TEMP
+#     mech_loads_block      -> AFFE_CHAR_MECA(_F) + DEFI_LIST_INST
+#     mech_solve_block      -> STAT_NON_LINE
+#     mech_calc_champ_block -> CALC_CHAMP (spanningen, plastische rek) en de
+#                              samenvatting BRIDGE_THERMOMECA
+#   export_block            -> aster_results_export (res = mechanisch,
+#                              res_ther / res_flux = thermisch)
+#   med_block               -> MED (instelling med_export)
+#
+# Een accolade die geen placeholder is: verdubbelen ({{ of }}).
+
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(NOM='all_elems', TOUT='OUI'),
+    CREA_GROUP_NO=_F(NOM='all_nodes', GROUP_MA='all_elems'),
+)
+
+{defigroup_block}
+
+# =====================================================
+# 2. THERMISCH MODEL (PHENOMENE='THERMIQUE')
+# =====================================================
+{model_block}
+
+# =====================================================
+# 3. THERMISCHE MATERIALEN
+# =====================================================
+{materials_block}
+{fieldmat_block}
+
+# =====================================================
+# 4. FUNCTIES
+# =====================================================
+{funcs_block}
+
+# =====================================================
+# 5. TIJDSTAPPEN EN BEGINTEMPERATUUR
+# =====================================================
+{listinst_block}
+
+# =====================================================
+# 6. THERMISCHE RANDVOORWAARDEN EN BELASTINGEN
+# =====================================================
+{loads_block}
+
+# =====================================================
+# 7. THERMISCH OPLOSSEN
+# =====================================================
+{solve_block}
+
+# =====================================================
+# 8. WARMTEFLUX (en de energiecontrole van een lasbron)
+# =====================================================
+{calc_champ_block}
+
+# =====================================================
+# 9. MECHANISCH MODEL
+# Het thermische resultaat heet vanaf hier res_ther; 'model', 'fieldmat'
+# en 'res' zijn hierna de mechanische concepten.
+# =====================================================
+{mech_defigroup_block}
+
+{mech_model_block}
+
+# =====================================================
+# 10. MECHANISCHE MATERIALEN (functies van TEMP in graden C) EN DE
+# TEMPERATUUR ALS COMMANDOVARIABELE (AFFE_VARC, U4.43.03)
+# =====================================================
+{mech_materials_block}
+{mech_fieldmat_block}
+
+# =====================================================
+# 11. MECHANISCHE RANDVOORWAARDEN, LASTEN EN TIJDSTAPPEN
+# =====================================================
+{mech_loads_block}
+
+# =====================================================
+# 12. MECHANISCH OPLOSSEN (STAT_NON_LINE op de thermische tijden)
+# =====================================================
+{mech_solve_block}
+
+# =====================================================
+# 13. SPANNINGEN, PLASTISCHE REK EN SAMENVATTING
+# =====================================================
+{mech_calc_champ_block}
+
+# =====================================================
+# 14. RESULTATEN NAAR MECWAY
+# =====================================================
+{export_block}
+
+# =====================================================
+# 15. MED (ParaView / Salome), alleen met de instelling "med_export";
+# UNITE=80 = 'F rmed ... R 80'
+# =====================================================
+{med_block}
+
+FIN()

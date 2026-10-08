@@ -1,0 +1,88 @@
+<liml version="33">
+  <analysis type="S30" />
+  <node nid="1" x="0" y="0" z="0" />
+  <node nid="2" x="0.25" y="0" z="0" />
+  <node nid="3" x="0.5" y="0" z="0" />
+  <node nid="4" x="0.5" y="0.25" z="0" />
+  <node nid="5" x="0.5" y="0.5" z="0" />
+  <node nid="6" x="0.25" y="0.5" z="0" />
+  <node nid="7" x="0" y="0.5" z="0" />
+  <node nid="8" x="0" y="0.25" z="0" />
+  <node nid="9" x="0.5" y="0.75" z="0" />
+  <node nid="10" x="0.5" y="1" z="0" />
+  <node nid="11" x="0.25" y="1" z="0" />
+  <node nid="12" x="0" y="1" z="0" />
+  <node nid="13" x="0" y="0.75" z="0" />
+  <node nid="14" x="0.75" y="0" z="0" />
+  <node nid="15" x="1" y="0" z="0" />
+  <node nid="16" x="1" y="0.25" z="0" />
+  <node nid="17" x="1" y="0.5" z="0" />
+  <node nid="18" x="0.75" y="0.5" z="0" />
+  <node nid="19" x="1" y="0.75" z="0" />
+  <node nid="20" x="1" y="1" z="0" />
+  <node nid="21" x="0.75" y="1" z="0" />
+  <elset name="Plaat" material="Plaat10">
+    <elem eid="1" shape="quad8" nodes="1 2 3 4 5 6 7 8" />
+    <elem eid="2" shape="quad8" nodes="7 6 5 9 10 11 12 13" />
+    <elem eid="3" shape="quad8" nodes="3 14 15 16 17 18 5 4" />
+    <elem eid="4" shape="quad8" nodes="5 18 17 19 20 21 10 9" />
+  </elset>
+  <displacement selection="Rand"><value>0 m</value><x>1</x><y>0</y><z>0</z></displacement>
+  <displacement selection="Rand"><value>0 m</value><x>0</x><y>1</y><z>0</z></displacement>
+  <displacement selection="Rand"><value>0 m</value><x>0</x><y>0</y><z>1</z></displacement>
+  <noderotation selection="RandX"><value>0 rad</value><x>1</x><y>0</y><z>0</z></noderotation>
+  <noderotation selection="RandY"><value>0 rad</value><x>0</x><y>1</y><z>0</z></noderotation>
+  <surfacepressure selection="Bovenvlak"><normal>10000 Pa</normal></surfacepressure>
+  <mat name="Plaat10">
+    <geometric type="Plate" thickness="0.01 m" />
+    <mechanical type="Isotropic" youngsmodulus="210000 MPa" poissonratio="0.3" />
+  </mat>
+  <nodeselection name="Rand">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="3" />
+    <node nid="7" />
+    <node nid="8" />
+    <node nid="10" />
+    <node nid="11" />
+    <node nid="12" />
+    <node nid="13" />
+    <node nid="14" />
+    <node nid="15" />
+    <node nid="16" />
+    <node nid="17" />
+    <node nid="19" />
+    <node nid="20" />
+    <node nid="21" />
+  </nodeselection>
+  <faceselection name="Bovenvlak">
+    <face eid="1" faceid="5" />
+    <face eid="2" faceid="5" />
+    <face eid="3" faceid="5" />
+    <face eid="4" faceid="5" />
+  </faceselection>
+  <nodeselection name="RandX">
+    <node nid="1" />
+    <node nid="7" />
+    <node nid="8" />
+    <node nid="12" />
+    <node nid="13" />
+    <node nid="15" />
+    <node nid="16" />
+    <node nid="17" />
+    <node nid="19" />
+    <node nid="20" />
+  </nodeselection>
+  <nodeselection name="RandY">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="3" />
+    <node nid="10" />
+    <node nid="11" />
+    <node nid="12" />
+    <node nid="14" />
+    <node nid="15" />
+    <node nid="20" />
+    <node nid="21" />
+  </nodeselection>
+</liml>

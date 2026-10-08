@@ -1,0 +1,88 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor vibro-akoestiek: gekoppelde eigenmodes van een constructie
+# en een lucht- of vloeistofvolume (Mecway Frequency-model V30 met een
+# fluidum-onderdeel). PHENOMENE='MECANIQUE' met 3D_FLUIDE (fluidum),
+# FLUI_STRU (koppelvlak) en de gewone mechanische elementen, FORMULATION
+# 'U_P_PHI' (testcase adlv100a). Invulling via str.format() vanuit
+# bridge_vibroacoustic.build_vibroacoustic_modes.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> DEFI_GROUP / CREA_MAILLAGE / MODI_MAILLAGE
+#                        (constructie, zoals modaal) en ORIE_PEAU van de
+#                        koppelvlakken (normaal uit het fluidum)
+#   model_block       -> AFFE_MODELE: constructie, 3D_FLUIDE, FLUI_STRU
+#   cara_elem_block   -> AFFE_CARA_ELEM (balken, schalen, veren, massa's)
+#   materials_block   -> DEFI_MATERIAU: ELAS (constructie), FLUIDE (RHO,
+#                        CELE_R)
+#   fieldmat_block    -> AFFE_MATERIAU (koppelvlakken krijgen het fluidum)
+#   loads_block       -> opleggingen van de constructie en drukknopen
+#                        (DDL_IMPO PRES = 0, PHI = 0)
+#   assemblage_block  -> ASSEMBLAGE RIGI_MECA en MASS_MECA
+#   calc_modes_block  -> band zoeken (INFO_MODE), CALC_MODES BANDE,
+#                        EXTR_MODE -> res
+#   export_block      -> aster_results_export (een <mode> per mode met
+#                        displ en pressure)
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# Een accolade die geen placeholder is: verdubbelen ({{ of }}).
+
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+{defigroup_block}
+
+# =====================================================
+# 2. MODEL, SECTIES, MATERIALEN
+# =====================================================
+{model_block}
+
+{cara_elem_block}
+
+{materials_block}
+
+{fieldmat_block}
+
+# =====================================================
+# 3. RANDVOORWAARDEN (opleggingen, drukknopen)
+# =====================================================
+{loads_block}
+
+# =====================================================
+# 4. MATRICES (ASSEMBLAGE, U4.61.21)
+# =====================================================
+{assemblage_block}
+
+# =====================================================
+# 5. GEKOPPELDE EIGENMODES (INFO_MODE, CALC_MODES BANDE)
+# =====================================================
+{calc_modes_block}
+
+# =====================================================
+# 6. RESULTATEN NAAR MECWAY
+# =====================================================
+{export_block}
+
+{impr_resu_block}
+
+FIN()

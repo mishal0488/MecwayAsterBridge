@@ -1,0 +1,870 @@
+{
+ "sslv04b": {
+  "name": "sslv04b",
+  "bridge": "MECA_STATIQUE 3D (hex20/penta15)",
+  "onderwerp": "Dikwandige holle cilinder onder inwendige druk 60 MPa",
+  "wat": "radiale verplaatsing en spanningen (Lame), 3D kwadratisch, PRES_REP",
+  "ref": "analytisch (Lame)",
+  "diagnostic": "OK",
+  "seconds": 3.1,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 86,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 77,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    4.799138,
+    6.0
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssll102a": {
+  "name": "ssll102a",
+  "bridge": "MECA_STATIQUE POU_D_E",
+  "onderwerp": "Ingeklemde balk met eenheidskrachten en -momenten op het vrije eind",
+  "wat": "verplaatsingen, rotaties en snedekrachten van Euler-Bernoulli-balken",
+  "ref": "analytisch (balktheorie)",
+  "diagnostic": "OK",
+  "seconds": 7.4,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 286,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 318,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    8.602463e-05,
+    9.999999999999999e-05
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "POU_D_E"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssls101b": {
+  "name": "ssls101b",
+  "bridge": "MECA_STATIQUE DKT",
+  "onderwerp": "Ronde plaat (kwart model) onder druk, F3 en eigen gewicht",
+  "wat": "doorbuiging en momenten in DKT-schaalelementen; FORCE_COQUE, PESANTEUR",
+  "ref": "analytisch (plaattheorie)",
+  "diagnostic": "OK",
+  "seconds": 3.4,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 36,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 35,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "NON_DEFINI": {
+    "OK": 4,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    5.58996,
+    6.0
+   ],
+   "NON_DEFINI": [
+    0.1170649,
+    0.15
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "DKT"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssls105a": {
+  "name": "ssls105a",
+  "bridge": "MECA_STATIQUE DKT (dubbel gekromd)",
+  "onderwerp": "NAFEMS LE3: halve bol, dubbel geknepen (Morley)",
+  "wat": "radiale verplaatsing in het belastingspunt; grote rotaties in het vlak",
+  "ref": "NAFEMS LE3 (SOURCE_EXTERNE)",
+  "diagnostic": "OK",
+  "seconds": 2.9,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 2,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "SOURCE_EXTERNE": {
+    "OK": 2,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "SOURCE_EXTERNE": [
+    0.659848,
+    1.0
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "DKT"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": []
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssls114a": {
+  "name": "ssls114a",
+  "bridge": "MECA_STATIQUE COQUE_3D",
+  "onderwerp": "Cilinderschaal onder inwendige druk (PRES_REP en FORCE_COQUE)",
+  "wat": "verplaatsingen, membraankrachten en rekken in COQUE_3D",
+  "ref": "analytisch (membraantheorie)",
+  "diagnostic": "<A>_ALARM",
+  "seconds": 3.2,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 48,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 48,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    27.25347,
+    27.500000000000004
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "COQUE_3D"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": [
+   "MODELISA8_14",
+   "UTILITAI_4"
+  ]
+ },
+ "ssnp15a": {
+  "name": "ssnp15a",
+  "bridge": "STAT_NON_LINE VMIS_ISOT_LINE",
+  "onderwerp": "Vierkante plaat, niet-proportionele trek + afschuiving, 3D",
+  "wat": "spanningen en plastische rek bij isotrope versteviging (Von Mises)",
+  "ref": "analytisch (integratie van de constitutieve wet)",
+  "diagnostic": "OK",
+  "seconds": 7.7,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 94,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 44,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "AUTRE_ASTER": {
+    "OK": 34,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    2.381249,
+    3.0
+   ],
+   "AUTRE_ASTER": [
+    0.06394004,
+    0.1
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "VMIS_ECMI_LINE",
+    "VMIS_ISOT_LINE"
+   ],
+   "DEFORMATION": [
+    "PETIT"
+   ],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssnp14b": {
+  "name": "ssnp14b",
+  "bridge": "STAT_NON_LINE VMIS_CINE_LINE",
+  "onderwerp": "NAFEMS: vierkante plaat, trek + afschuiving, kinematische versteviging",
+  "wat": "spanningen en plastische rek bij kinematische versteviging, penta6",
+  "ref": "NAFEMS (in de .comm: NON_DEFINI)",
+  "diagnostic": "OK",
+  "seconds": 3.0,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 13,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {},
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "VMIS_CINE_LINE"
+   ],
+   "DEFORMATION": [
+    "PETIT"
+   ],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "hsnv100g": {
+  "name": "hsnv100g",
+  "bridge": "STAT_NON_LINE VMIS_ISOT_TRAC + thermische rek",
+  "onderwerp": "Thermoplasticiteit: element met opgelegde temperatuur en trekkromme",
+  "wat": "spanning en plastische rek; VMIS_ISOT_TRAC, ALPHA, AFFE_VARC TEMP",
+  "ref": "analytisch",
+  "diagnostic": "OK",
+  "seconds": 3.0,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 12,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 12,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    0.001,
+    0.1
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "VMIS_ISOT_TRAC"
+   ],
+   "DEFORMATION": [
+    "PETIT"
+   ],
+   "SCHEMA": [
+    "THETA"
+   ],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssnp159a": {
+  "name": "ssnp159a",
+  "bridge": "STAT_NON_LINE GDEF_LOG",
+  "onderwerp": "Blok in trek tot grote rek, VMIS_ISOT_LINE, PETIT / GDEF_LOG / SIMO_MIEHE",
+  "wat": "spanning en rek bij grote vervorming (logaritmische rek)",
+  "ref": "analytisch",
+  "diagnostic": "OK",
+  "seconds": 3.7,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 15,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "NON_DEFINI": {
+    "OK": 9,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 6,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "NON_DEFINI": [
+    1.012714,
+    1.5
+   ],
+   "ANALYTIQUE": [
+    0.1542672,
+    1.0
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "VMIS_ISOT_LINE"
+   ],
+   "DEFORMATION": [
+    "GDEF_LOG",
+    "PETIT",
+    "SIMO_MIEHE"
+   ],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ssnv122a": {
+  "name": "ssnv122a",
+  "bridge": "STAT_NON_LINE GREEN_LAGRANGE, meebewegende druk",
+  "onderwerp": "Starre rotatie van een blok + druk in de vervormde configuratie",
+  "wat": "objectiviteit van GREEN_LAGRANGE; PRES_REP met TYPE_CHARGE='SUIV'",
+  "ref": "analytisch",
+  "diagnostic": "<A>_ALARM",
+  "seconds": 2.8,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 12,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 18,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    0.004008965,
+    0.1
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "ELAS"
+   ],
+   "DEFORMATION": [
+    "GREEN_LAGRANGE"
+   ],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": [
+   "CHARGES9_53"
+  ]
+ },
+ "ssnv167d": {
+  "name": "ssnv167d",
+  "bridge": "contact DEFI_CONTACT CONTINUE",
+  "onderwerp": "Twee blokken in contact, opgelegde verplaatsing, 3D",
+  "wat": "contactdruk (LAGS_C) en verplaatsingen; continue formulering, NEWTON",
+  "ref": "analytisch",
+  "diagnostic": "OK",
+  "seconds": 2.5,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 20,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 20,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    4.163336e-14,
+    1e-06
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "ELAS"
+   ],
+   "DEFORMATION": [
+    "PETIT"
+   ],
+   "SCHEMA": [],
+   "FORMULATION": [
+    "CONTINUE"
+   ],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "sdls115a": {
+  "name": "sdls115a",
+  "bridge": "DYNA_NON_LINE DIFF_CENT en HHT",
+  "onderwerp": "Plaatstrook (DKT) met sinusvormige oplossing u = q0 sin(kx) sin(wt)",
+  "wat": "verplaatsing in de tijd met expliciet (DIFF_CENT) en HHT compleet",
+  "ref": "analytisch",
+  "diagnostic": "<A>_ALARM",
+  "seconds": 4.2,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 12,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 8,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "AUTRE_ASTER": {
+    "OK": 3,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    5.467401,
+    10.0
+   ],
+   "AUTRE_ASTER": [
+    0.0006855138,
+    0.001
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "DKT"
+   ],
+   "RELATION": [
+    "ELAS"
+   ],
+   "DEFORMATION": [
+    "PETIT"
+   ],
+   "SCHEMA": [
+    "DIFF_CENT",
+    "HHT"
+   ],
+   "FORMULATION": [
+    "ACCELERATION",
+    "DEPLACEMENT"
+   ],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": [
+   "CATAMESS_41",
+   "MODELISA8_14"
+  ]
+ },
+ "sdlv121d": {
+  "name": "sdlv121d",
+  "bridge": "DYNA_NON_LINE HHT / NEWMARK (continuum)",
+  "onderwerp": "Vlakke golf in een elastische kolom: voortplanting, reflectie, absorptie",
+  "wat": "verplaatsing/snelheid van de golf, D_PLAN, HHT en NEWMARK",
+  "ref": "analytisch (golfvoortplanting)",
+  "diagnostic": "<A>_ALARM",
+  "seconds": 8.7,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 8,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 8,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    2.1,
+    2.2
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "D_PLAN",
+    "D_PLAN_ABSO"
+   ],
+   "RELATION": [
+    "ELAS"
+   ],
+   "DEFORMATION": [
+    "PETIT"
+   ],
+   "SCHEMA": [
+    "HHT",
+    "NEWMARK"
+   ],
+   "FORMULATION": [
+    "DEPLACEMENT"
+   ],
+   "METHODE": [
+    "LDLT",
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": [
+   "MECANONLINE_23"
+  ]
+ },
+ "tpll01e": {
+  "name": "tpll01e",
+  "bridge": "THER_LINEAIRE stationair (3D)",
+  "onderwerp": "Wand met opgelegde temperatuur, flux en convectie (1D-oplossing in 3D)",
+  "wat": "temperatuur; TEMP_IMPO, FLUX_REP, ECHANGE",
+  "ref": "analytisch",
+  "diagnostic": "OK",
+  "seconds": 3.0,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 7,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 7,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    4.291334e-07,
+    0.1
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [
+    "THETA"
+   ],
+   "FORMULATION": [],
+   "METHODE": [
+    "LDLT"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "ttlv01a": {
+  "name": "ttlv01a",
+  "bridge": "THER_LINEAIRE transient (3D)",
+  "onderwerp": "Afkoelend/opwarmend lichaam met convectie (penta6/tetra4)",
+  "wat": "temperatuur in de tijd; ECHANGE, THETA-schema, ETAT_INIT",
+  "ref": "analytisch (reeksoplossing)",
+  "diagnostic": "OK",
+  "seconds": 4.6,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 50,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 50,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    3.287699,
+    5.0
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [
+    "THETA"
+   ],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "tpna01b": {
+  "name": "tpna01b",
+  "bridge": "THER_NON_LINE straling (3D)",
+  "onderwerp": "Stationaire geleiding met straling naar de omgeving",
+  "wat": "temperatuur en flux; RAYONNEMENT (T+273,15 intern), THER_NL",
+  "ref": "analytisch",
+  "diagnostic": "OK",
+  "seconds": 3.6,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 7,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 5,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    0.08719616,
+    0.2
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [
+    "THER_NL"
+   ],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "tplv101c": {
+  "name": "tplv101c",
+  "bridge": "THER_NON_LINE PLAN (thermische schaal in de bridge)",
+  "onderwerp": "Vlak model met bronnen, flux, opgelegde temperatuur en wandcontact",
+  "wat": "temperatuur; MODELISATION='PLAN', SOURCE, FLUX_REP, TEMP_IMPO",
+  "ref": "analytisch",
+  "diagnostic": "OK",
+  "seconds": 3.5,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 70,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 70,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    1.276756e-12,
+    0.1
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "PLAN"
+   ],
+   "RELATION": [
+    "THER_NL"
+   ],
+   "DEFORMATION": [],
+   "SCHEMA": [
+    "THETA"
+   ],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ },
+ "sslv153a": {
+  "name": "sslv153a",
+  "bridge": "CALC_ERREUR ERME (foutschatter)",
+  "onderwerp": "Blok van hexa/penta/pyram/tetra (LINE_QUAD), druk, vrije randen met druk ~0",
+  "wat": "ERREST van ERME_NOEU en QIRE_NOEU; ook via de bridge nagebouwd (FS-03)",
+  "ref": "NON_REGRESSION",
+  "diagnostic": "<A>_ALARM",
+  "seconds": 2.5,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 8,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {},
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": [
+   "CATAMESS_41",
+   "CHARGES2_88"
+  ]
+ },
+ "sslv111f": {
+  "name": "sslv111f",
+  "bridge": "CALC_ERREUR ERME en ERZ1 (3D)",
+  "onderwerp": "Plaat met gat (Kirsch), hexa8/pyram5/tetra4, FORCE_FACE",
+  "wat": "ERME_ELEM/ERME_ELNO en ZZ1-spanningen in 3D",
+  "ref": "analytisch (Kirsch) / NON_REGRESSION",
+  "diagnostic": "OK",
+  "seconds": 8.9,
+  "counts": {
+   "NON_REGRESSION": {
+    "OK": 17,
+    "NOOK": 0,
+    "SKIP": 0
+   },
+   "ANALYTIQUE": {
+    "OK": 17,
+    "NOOK": 0,
+    "SKIP": 0
+   }
+  },
+  "max_err": {
+   "ANALYTIQUE": [
+    11.54706,
+    15.0
+   ]
+  },
+  "features": {
+   "MODELISATION": [
+    "3D"
+   ],
+   "RELATION": [],
+   "DEFORMATION": [],
+   "SCHEMA": [],
+   "FORMULATION": [],
+   "METHODE": [
+    "MUMPS"
+   ]
+  },
+  "errors": [],
+  "alarms": []
+ }
+}

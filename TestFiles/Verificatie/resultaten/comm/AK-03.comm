@@ -1,0 +1,120 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor akoestische holtemodes (Mecway A30, Acoustic Resonance
+# 3D): PHENOMENE='ACOUSTIQUE', ASSEMBLAGE RIGI_ACOU/MASS_ACOU en
+# CALC_MODES. Invulling via str.format() vanuit bridge_acoustic.py
+# (build_acoustic_modes).
+#
+# Placeholders (naam tussen enkele accolades):
+#   model_block       -> AFFE_MODELE (volumes, ACOUSTIQUE / 3D)
+#   materials_block   -> DEFI_MATERIAU FLUIDE per materiaal
+#   fieldmat_block    -> AFFE_MATERIAU toewijzing
+#   loads_block       -> AFFE_CHAR_ACOU PRES_IMPO (drukknopen) en #ASTER-code
+#   assemblage_block  -> ASSEMBLAGE en de reele matrices (COMB_MATR_ASSE)
+#   calc_modes_block  -> res = CALC_MODES(...)
+#   export_block      -> aster_results_export (een <mode> per holtemode)
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# Een accolade die geen placeholder is: verdubbelen ({ of }).
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+# =====================================================
+# 2. MODEL EN MATERIALEN (lucht/vloeistof)
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=_F(
+        GROUP_MA=('Lucht',),
+        PHENOMENE='ACOUSTIQUE',
+        MODELISATION='3D',
+    ),
+)
+
+
+# materiaal 'Lucht'
+MAC1 = DEFI_MATERIAU(FLUIDE=_F(RHO=1.2, CELE_R=340.0))
+
+
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Lucht', MATER=MAC1),
+    ),
+)
+
+
+# =====================================================
+# 3. DRUKKNOPEN (p = 0); vlakken zonder voorwaarde zijn harde wanden
+# =====================================================
+# Drukknopen (Mecway fluid pressure = 0)
+bc_pres = AFFE_CHAR_ACOU(
+    MODELE=model,
+    PRES_IMPO=(
+        _F(GROUP_MA='Open0', PRES=0j),
+        _F(GROUP_MA='OpenL', PRES=0j),
+    ),
+)
+
+
+# =====================================================
+# 4. MATRICES (ASSEMBLAGE, U4.61.21)
+# =====================================================
+ASSEMBLAGE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    CHARGE=(bc_pres,),
+    NUME_DDL=CO('numedd'),
+    MATR_ASSE=(
+        _F(MATRICE=CO('rigi_c'), OPTION='RIGI_ACOU'),
+        _F(MATRICE=CO('mass_c'), OPTION='MASS_ACOU'),
+    ),
+)
+# Reele delen (de akoestische matrices zijn complex; ahlv100a)
+rigidite = COMB_MATR_ASSE(COMB_R=_F(MATR_ASSE=rigi_c, PARTIE='REEL', COEF_R=1.0))
+masse = COMB_MATR_ASSE(COMB_R=_F(MATR_ASSE=mass_c, PARTIE='REEL', COEF_R=1.0))
+
+
+# =====================================================
+# 5. HOLTEMODES (CALC_MODES, U4.52.02)
+# =====================================================
+res = CALC_MODES(
+    TYPE_RESU='DYNAMIQUE',
+    MATR_RIGI=rigidite,
+    MATR_MASS=masse,
+    OPTION='PLUS_PETITE',
+    CALC_FREQ=_F(NMAX_FREQ=4),
+    VERI_MODE=_F(SEUIL=1e-06, STOP_ERREUR='NON'),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8),
+)
+
+
+# =====================================================
+# 6. RESULTATEN NAAR MECWAY
+# =====================================================
+# Resultaten in Mecway's eigen formaat (result_route 'liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.print_modes(res)
+aster_results_export.export_results(
+    res, '<WORKDIR>\\AK-03\\AK-03_verif_results.xml', '<WORKDIR>\\AK-03\\AK-03.liml',
+    fields=['pressure'], precision='double')
+
+
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

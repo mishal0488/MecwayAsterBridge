@@ -1,0 +1,48 @@
+<liml version="33">
+  <analysis type="T30" />
+  <node nid="1" x="0" y="0" z="0" />
+  <node nid="2" x="0.02" y="0" z="0" />
+  <node nid="3" x="0.02" y="0.01" z="0" />
+  <node nid="4" x="0" y="0.01" z="0" />
+  <node nid="5" x="0" y="0" z="0.01" />
+  <node nid="6" x="0.02" y="0" z="0.01" />
+  <node nid="7" x="0.02" y="0.01" z="0.01" />
+  <node nid="8" x="0" y="0.01" z="0.01" />
+  <node nid="9" x="0.04" y="0" z="0" />
+  <node nid="10" x="0.04" y="0.01" z="0" />
+  <node nid="11" x="0.04" y="0" z="0.01" />
+  <node nid="12" x="0.04" y="0.01" z="0.01" />
+  <node nid="13" x="0.06" y="0" z="0" />
+  <node nid="14" x="0.06" y="0.01" z="0" />
+  <node nid="15" x="0.06" y="0" z="0.01" />
+  <node nid="16" x="0.06" y="0.01" z="0.01" />
+  <node nid="17" x="0.08" y="0" z="0" />
+  <node nid="18" x="0.08" y="0.01" z="0" />
+  <node nid="19" x="0.08" y="0" z="0.01" />
+  <node nid="20" x="0.08" y="0.01" z="0.01" />
+  <node nid="21" x="0.1" y="0" z="0" />
+  <node nid="22" x="0.1" y="0.01" z="0" />
+  <node nid="23" x="0.1" y="0" z="0.01" />
+  <node nid="24" x="0.1" y="0.01" z="0.01" />
+  <elset name="Wand" material="Staal">
+    <elem eid="1" shape="hex8" nodes="1 2 3 4 5 6 7 8" />
+    <elem eid="2" shape="hex8" nodes="2 9 10 3 6 11 12 7" />
+    <elem eid="3" shape="hex8" nodes="9 13 14 10 11 15 16 12" />
+    <elem eid="4" shape="hex8" nodes="13 17 18 14 15 19 20 16" />
+    <elem eid="5" shape="hex8" nodes="17 21 22 18 19 23 24 20" />
+  </elset>
+  <temperature2 selection="Links"><value>400 K</value><starttime>0 s</starttime><endtime>0 s</endtime></temperature2>
+  <convectionbc selection="Rechts"><ambienttemp>300 K</ambienttemp><coefficient>250 W/m²/K</coefficient></convectionbc>
+  <mat name="Staal">
+    <thermal type="Isotropic" thermalconductivity="50 W/m/K" />
+  </mat>
+  <nodeselection name="Links">
+    <node nid="1" />
+    <node nid="4" />
+    <node nid="5" />
+    <node nid="8" />
+  </nodeselection>
+  <faceselection name="Rechts">
+    <face eid="5" faceid="4" />
+  </faceselection>
+</liml>

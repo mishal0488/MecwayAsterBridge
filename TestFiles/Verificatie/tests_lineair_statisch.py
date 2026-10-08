@@ -1,0 +1,525 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+"""
+Lineair statisch (Mecway S30 -> MECA_STATIQUE). Referenties: balktheorie,
+Roark's Formulas for Stress and Strain (Young & Budynas, 7e druk),
+Timoshenko & Woinowsky-Krieger (Theory of Plates and Shells, 2e druk),
+Timoshenko & Goodier (Theory of Elasticity, 3e druk) en NAFEMS LE1.
+Toelichting per test: doc_lineair_statisch.md.
+
+Tolerantie in een mesh-convergentiereeks: het fijnste mesh krijgt tol_f =
+modelfout van de analytische theorie (bijv. 3D-inklemming t.o.v. de
+balktheorie) + onzekerheid van de referentie (afronding) + ruim de
+discretisatiefout van dat mesh (Richardson uit de reeks); zie de doc.
+Een grover mesh krijgt tol_f * (h / h_f)^p, met p de verwachte
+convergentie-orde van de grootheid, begrensd op 50% (een grof mesh is
+dan alleen een orde-van-grootte-controle). Zo controleert elk mesh dat
+de fout past bij convergentie naar de referentie.
+"""
+import math
+from verif_lib import Case, Check, Model, linemesh, hexmesh, quadmesh, box, \
+    rect
+
+GROUP = "Lineair statisch"
+E, NU = 210e9, 0.3
+G = E / (2 * (1 + NU))
+STEEL = ('<mechanical type="Isotropic" youngsmodulus="210000 MPa" '
+         'poissonratio="0.3" />')
+
+
+def _steel(m, name="Staal", extra=()):
+    m.mat(name, STEEL, *extra)
+
+
+def _mean(r, var, sel):
+    """Gemiddelde van var over een knoopselectie."""
+    d = r.step()[var]
+    nids = r.model.nodesel[sel]
+    return sum(d[n] for n in nids) / float(len(nids))
+
+
+def _tol(tol_f, h, h_f, p):
+    """Tolerantie van een mesh met elementgrootte h in een reeks met
+    fijnste elementgrootte h_f (zie de kop van deze module)."""
+    return max(tol_f, min(0.5, tol_f * (float(h) / h_f) ** p))
+
+
+# ------------------------------------------------------------------
+# LS-01 Ingeklemde balk, eindlast (POU_D_E)
+# ------------------------------------------------------------------
+L1, D1, P1, N1 = 1.0, 0.020, 100.0, 10
+I1 = math.pi * D1 ** 4 / 64.0
+
+
+def build_ls01():
+    m = Model("S30")
+    m.elset("Balk", "Rond20")
+    _eids, nids = linemesh(m, "Balk", N1, (0, 0, 0), (L1, 0, 0))
+    m.mat("Rond20", '<geometric type="CircularBar" roundod="20 mm" />',
+          STEEL)
+    m.node_selection("Inklemming", [nids[0]])
+    m.node_selection("Tip", [nids[-1]])
+    m.add('<fixed selection="Inklemming" />')
+    m.add('<force selection="Tip"><x>0 N</x><y>0 N</y><z>-%g N</z></force>'
+          % P1)
+    return m
+
+
+TESTS = [
+    Case("LS-01", GROUP, "Ingeklemde balk, eindlast (balkelementen)",
+         "lin_static_3d", build_ls01,
+         [Check("doorbuiging tip", lambda r: -r.at("displz", (L1, 0, 0)),
+                ref=P1 * L1 ** 3 / (3 * E * I1), tol=1e-3, unit="m",
+                source="PL^3/3EI (Roark tabel 8.1 geval 1a)"),
+          Check("rotatie tip", lambda r: abs(r.at("roty", (L1, 0, 0))),
+                ref=P1 * L1 ** 2 / (2 * E * I1), tol=1e-3, unit="rad",
+                source="PL^2/2EI (Roark tabel 8.1 geval 1a)"),
+          Check("reactiekracht Z", lambda r: r.total("reactionforcez",
+                                                       "Inklemming"),
+                ref=P1, tol=1e-6, unit="N", source="evenwicht")],
+         note="Euler-Bernoulli-balk is exact voor een eindlast."),
+]
+
+
+# ------------------------------------------------------------------
+# LS-02 Ingeklemde balk met volume-elementen, eindlast als traction
+# ------------------------------------------------------------------
+# 1 x 0,1 x 0,1 m, x = as, belasting -Z. Doorsnede n x n elementen,
+# lengte 10 n (kubusvormige elementen).
+L2, B2, H2, P2 = 1.0, 0.1, 0.1, 10.0e3
+A2 = B2 * H2
+I2 = B2 * H2 ** 3 / 12.0
+K2 = 5.0 / 6.0
+W_BEND2 = P2 * L2 ** 3 / (3 * E * I2)
+W_SHEAR2 = P2 * L2 / (K2 * G * A2)
+W2 = W_BEND2 + W_SHEAR2                       # Timoshenko-balk
+X2S = 0.2                                     # 2h van de inklemming
+SIG2 = P2 * (L2 - X2S) * (H2 / 2.0) / I2      # Mc/I
+
+
+def build_ls02(n, order):
+    def build():
+        m = Model("S30")
+        m.elset("Balk", "Staal")
+        mesh = hexmesh(m, "Balk", 10 * n, n, n, box(0, L2, 0, B2, 0, H2),
+                       order=order)
+        _steel(m)
+        m.face_selection("Inklemming", mesh["faces"]["u0"])
+        m.face_selection("Eindvlak", mesh["faces"]["u1"])
+        m.node_selection("InklemKnopen", sorted(mesh["nodes"]["u0"]))
+        m.node_selection("TipKnopen", sorted(mesh["nodes"]["u1"]))
+        m.add('<fixed selection="Inklemming" />')
+        m.add('<traction selection="Eindvlak"><x>0 Pa</x><y>0 Pa</y>'
+              '<z>-%g Pa</z></traction>' % (P2 / A2))
+        return m
+    return build
+
+
+def _ls02_cases():
+    out = []
+    # (label, order, general, n-reeks, (tol_w, tol_sig) fijnste, p_w, p_sig)
+    # Doorbuiging: modelfout 3D-inklemming t.o.v. Timoshenko ~ de
+    # afschuifterm (0,8%), dus tol_w 1% voor kwadratische elementen en 2%
+    # voor hex8 3D (+ ~1% discretisatie bij n = 16). p_w = 2: de
+    # singuliere randen van de inklemming beperken de orde.
+    # Spanning op x = 0,2 m: geen modelfout (Saint-Venant); hex8: nodale
+    # (geextrapoleerde) spanning convergeert met O(h).
+    series = [
+        ("hex8 3D", 1, {"elem_hex8": "3D"}, (1, 2, 4, 8, 16), (0.02, 0.03),
+         2, 1),
+        ("hex8 LINE_QUAD", 1, {"elem_hex8": "LINE_QUAD"}, (1, 2, 4),
+         (0.01, 0.005), 2, 2),
+        ("hex20", 2, {}, (1, 2, 4), (0.01, 0.005), 2, 2),
+    ]
+    for label, order, general, ns, (tw, ts), pw, ps in series:
+        nf = ns[-1]
+        hf = H2 / nf
+        for n in ns:
+            h = H2 / n
+            key = {"hex8 3D": "h8", "hex8 LINE_QUAD": "lq",
+                   "hex20": "h20"}[label]
+            out.append(Case(
+                "LS-02-%s-n%d" % (key, n), GROUP,
+                "Ingeklemde balk volume, %s, %dx%dx%d" % (label, 10 * n, n,
+                                                           n),
+                "lin_static_3d", build_ls02(n, order),
+                [Check("doorbuiging tip (gem.)",
+                       lambda r: -_mean(r, "displz", "TipKnopen"),
+                       ref=W2, tol=_tol(tw, h, hf, pw), unit="m",
+                       source="Timoshenko-balk PL^3/3EI + PL/kGA, k=5/6"),
+                 Check("sigma_xx x=0,2 m boven",
+                       lambda r: r.at("stressxx", (X2S, B2 / 2, H2)),
+                       ref=SIG2, tol=_tol(ts, h, hf, ps), unit="Pa",
+                       source="M c / I, M = P (L - x)"),
+                 Check("reactiekracht Z",
+                       lambda r: r.total("reactionforcez", "InklemKnopen"),
+                       ref=P2, tol=1e-6, unit="N", source="evenwicht")],
+                general=general, series="LS-02 " + label, h=h,
+                note="Traction %g Pa op het eindvlak; inklemming: alle "
+                     "knopen van het vlak vast." % (P2 / A2)))
+    return out
+
+
+TESTS += _ls02_cases()
+
+
+# ------------------------------------------------------------------
+# LS-03 Vierkante plaat, vrij opgelegd rondom, gelijkmatige druk
+# ------------------------------------------------------------------
+A3, T3, Q3 = 1.0, 0.01, 10.0e3
+D3 = E * T3 ** 3 / (12 * (1 - NU ** 2))
+
+
+def _navier(nmax=401):
+    """Navier-reeks (Timoshenko & Woinowsky-Krieger par. 30): w en Mx in
+    het midden van een vrij opgelegde vierkante plaat a x a."""
+    sw = sm = 0.0
+    for mm in range(1, nmax + 1, 2):
+        for nn in range(1, nmax + 1, 2):
+            s = (-1) ** ((mm + nn) // 2 - 1)
+            den = mm * nn * (mm ** 2 + nn ** 2) ** 2
+            sw += s / den
+            sm += s * (mm ** 2 + NU * nn ** 2) / den
+    alpha = 16.0 / math.pi ** 6 * sw
+    beta = 16.0 / math.pi ** 4 * sm
+    return alpha, beta
+
+
+ALPHA3, BETA3 = _navier()
+W3 = ALPHA3 * Q3 * A3 ** 4 / D3
+SIG3 = 6 * BETA3 * Q3 * A3 ** 2 / T3 ** 2
+
+
+def build_ls03(n, order, hard=True):
+    def build():
+        m = Model("S30")
+        m.elset("Plaat", "Plaat10")
+        mesh = quadmesh(m, "Plaat", n, n, rect(0, A3, 0, A3), order=order)
+        m.mat("Plaat10", '<geometric type="Plate" thickness="%g m" />' % T3,
+              STEEL)
+        rand = set()
+        for s in ("u0", "u1", "v0", "v1"):
+            rand |= mesh["nodes"][s]
+        m.node_selection("Rand", sorted(rand))
+        m.face_selection("Bovenvlak", mesh["faces"])
+        # vrij opgelegd ("hard", zoals Navier/Kirchhoff): alle randknopen
+        # DX = DY = DZ = 0 en de rotatie om de normaal op de rand nul
+        # (randen x = 0, a: DRX = 0; randen y = 0, a: DRY = 0); de rotatie
+        # om de rand zelf is vrij. Mecway's pinned support is "gemiddelde
+        # verplaatsing nul", daarom displacement per richting.
+        for d in ("<x>1</x><y>0</y><z>0</z>", "<x>0</x><y>1</y><z>0</z>",
+                  "<x>0</x><y>0</y><z>1</z>"):
+            m.add('<displacement selection="Rand"><value>0 m</value>%s'
+                  '</displacement>' % d)
+        if hard:
+            m.node_selection("RandX", sorted(mesh["nodes"]["u0"] |
+                                             mesh["nodes"]["u1"]))
+            m.node_selection("RandY", sorted(mesh["nodes"]["v0"] |
+                                             mesh["nodes"]["v1"]))
+            m.add('<noderotation selection="RandX"><value>0 rad</value>'
+                  '<x>1</x><y>0</y><z>0</z></noderotation>')
+            m.add('<noderotation selection="RandY"><value>0 rad</value>'
+                  '<x>0</x><y>1</y><z>0</z></noderotation>')
+        m.add('<surfacepressure selection="Bovenvlak"><normal>%g Pa</normal>'
+              '</surfacepressure>' % Q3)
+        return m
+    return build
+
+
+def _ls03_cases():
+    out = []
+    # (label, key, orde, n-reeks, tol_w, tol_sig fijnste, p_w, p_sig).
+    # Referentie exact (Navier-reeks); COQUE_3D (Mindlin) heeft +0,06%
+    # afschuifdoorbuiging t.o.v. Kirchhoff.
+    series = [("DKT quad4", "dkt", 1, (4, 8, 16, 32), 0.002, 0.005, 2, 2),
+              ("COQUE_3D quad8", "cq3", 2, (2, 4, 8, 16), 0.002, 0.01, 2,
+               2)]
+    for label, key, order, ns, tw, ts, pw, ps in series:
+        hf = A3 / ns[-1]
+        for n in ns:
+            h = A3 / n
+            mid = (A3 / 2, A3 / 2, 0)
+            out.append(Case(
+                "LS-03-%s-n%d" % (key, n), GROUP,
+                "Vrij opgelegde plaat, druk, %s %dx%d" % (label, n, n),
+                "lin_static_3d", build_ls03(n, order),
+                [Check("doorbuiging midden",
+                       lambda r: -r.at("displz", mid), ref=W3,
+                       tol=_tol(tw, h, hf, pw), unit="m",
+                       source="alpha q a^4/D, alpha = %.5f (Navier; TWK "
+                              "tabel 8: 0,00406)" % ALPHA3),
+                 Check("sigma midden bovenvlak (VM)",
+                       lambda r: r.at("vonmisesu1", mid), ref=SIG3,
+                       tol=_tol(ts, h, hf, ps), unit="Pa",
+                       source="6 beta q a^2/t^2, beta = %.4f (Navier; TWK "
+                              "tabel 8: 0,0479)" % BETA3),
+                 Check("sigma midden ondervlak (VM)",
+                       lambda r: r.at("vonmisesb", mid), ref=SIG3,
+                       tol=_tol(ts, h, hf, ps), unit="Pa",
+                       source="idem")],
+                series="LS-03 " + label, h=h,
+                note="Randknopen DX = DY = DZ = 0, rotatie om de randnormaal 0 "
+                     "(hard vrij opgelegd); in het midden "
+                     "is sigma_x = sigma_y en tau_xy = 0, dus von Mises = "
+                     "|sigma_x|."))
+    return out
+
+
+TESTS += _ls03_cases()
+
+
+# ------------------------------------------------------------------
+# LS-04 Dikwandige cilinder, inwendige druk (Lame), vlakke rek
+# ------------------------------------------------------------------
+RA4, RB4, P4, LZ4 = 0.1, 0.2, 100.0e6, 0.01
+A4 = P4 * RA4 ** 2 / (RB4 ** 2 - RA4 ** 2)
+B4 = P4 * RA4 ** 2 * RB4 ** 2 / (RB4 ** 2 - RA4 ** 2)
+SIGT4 = A4 + B4 / RA4 ** 2                    # sigma_theta binnenwand
+SIGZ4 = 2 * NU * A4                           # vlakke rek
+UR4 = (1 + NU) / E * ((1 - 2 * NU) * A4 * RA4 + B4 / RA4)
+
+
+def _cyl(u, v, w):
+    r = RA4 + u * (RB4 - RA4)
+    t = v * math.pi / 2
+    return (r * math.cos(t), r * math.sin(t), w * LZ4)
+
+
+def build_ls04(nr, nt):
+    def build():
+        m = Model("S30")
+        m.elset("Cilinder", "Staal")
+        mesh = hexmesh(m, "Cilinder", nr, nt, 1, _cyl, order=2)
+        _steel(m)
+        f = mesh["faces"]
+        m.face_selection("Binnenwand", f["u0"])
+        m.face_selection("SymY0", f["v0"])          # vlak y = 0
+        m.face_selection("SymX0", f["v1"])          # vlak x = 0
+        m.face_selection("Einden", f["w0"] + f["w1"])
+        m.add('<surfacepressure selection="Binnenwand"><normal>%g Pa'
+              '</normal></surfacepressure>' % P4)
+        m.add('<symmetry selection="SymY0"><x>0</x><y>1</y><z>0</z>'
+              '</symmetry>')
+        m.add('<symmetry selection="SymX0"><x>1</x><y>0</y><z>0</z>'
+              '</symmetry>')
+        m.add('<frictionless selection="Einden"><displacement>0 m'
+              '</displacement></frictionless>')
+        return m
+    return build
+
+
+def _ls04_cases():
+    out = []
+    ns = (1, 2, 4, 8)
+    hf = (RB4 - RA4) / ns[-1]
+    for n in ns:
+        h = (RB4 - RA4) / n
+        pin = (RA4, 0, 0)
+        out.append(Case(
+            "LS-04-h20-n%d" % n, GROUP,
+            "Dikwandige cilinder, inwendige druk, hex20 %dx%dx1" % (n, 2 * n),
+            "lin_static_3d", build_ls04(n, 2 * n),
+            [Check("u_r binnenwand", lambda r: r.at("displx", pin), ref=UR4,
+                   tol=_tol(0.001, h, hf, 3), unit="m",
+                   source="Lame, vlakke rek (Timoshenko & Goodier par. 28)"),
+             Check("sigma_theta binnenwand", lambda r: r.at("stressyy", pin),
+                   ref=SIGT4, tol=_tol(0.005, h, hf, 1), unit="Pa",
+                   source="p (b^2+a^2)/(b^2-a^2) (Lame)"),
+             Check("sigma_zz binnenwand", lambda r: r.at("stresszz", pin),
+                   ref=SIGZ4, tol=_tol(0.01, h, hf, 2), unit="Pa",
+                   source="2 nu p a^2/(b^2-a^2) (vlakke rek)")],
+            series="LS-04 hex20", h=h,
+            note="Kwartmodel: symmetry op x = 0 en y = 0, frictionless op "
+                 "beide eindvlakken (vlakke rek)."))
+    return out
+
+
+TESTS += _ls04_cases()
+
+
+# ------------------------------------------------------------------
+# LS-05 NAFEMS LE1, elliptisch membraan
+# ------------------------------------------------------------------
+# Binnenellips (x/2)^2 + y^2 = 1, buitenellips (x/3,25)^2 + (y/2,75)^2 = 1,
+# dikte 0,1 m, trekdruk 10 MPa op de buitenrand, kwartmodel. Punt D = (2, 0).
+T5, P5 = 0.1, 10.0e6
+SIG5 = 92.7e6
+PT_D = (2.0, 0.0, 0.0)
+
+
+GU5, GV5 = 2.0, 1.5     # verdichting naar D (radiaal u^2, hoek v^1,5)
+
+
+def _graded(n, g):
+    """Stuksgewijs lineaire verdichting: knoop i/n -> (i/n)^g, daartussen
+    lineair. Zo liggen middenknopen midden tussen de hoekknopen (een
+    gladde afbeelding als u^2 zou ze naar het kwartpunt schuiven: een
+    singulier element in D)."""
+    def f(x):
+        k = min(int(x * n), n - 1)
+        a, b = (k / float(n)) ** g, ((k + 1) / float(n)) ** g
+        return a + (b - a) * (x * n - k)
+    return f
+
+
+def _le1_map(nu, nv):
+    """Afbeelding (u, v[, w]) -> (x, y, z): u van binnen- naar
+    buitenellips, v de hoek 0..90 graden; beide verdicht naar punt D
+    (u = v = 0), waar de spanning steil afneemt. nu, nv: aantal
+    elementen in u en v."""
+    gu, gv = _graded(nu, GU5), _graded(nv, GV5)
+
+    def f(u, v, w=0.0):
+        s = gu(u)
+        t = gv(v) * math.pi / 2
+        return ((2.0 + 1.25 * s) * math.cos(t),
+                (1.0 + 1.75 * s) * math.sin(t), w * T5)
+    return f
+
+
+def build_ls05_shell(n):
+    def build():
+        m = Model("S30")
+        m.elset("Membraan", "Plaat")
+        le1 = _le1_map(n, 2 * n)
+        mesh = quadmesh(m, "Membraan", n, 2 * n, lambda u, v: le1(u, v),
+                        order=2)
+        m.mat("Plaat", '<geometric type="Plate" thickness="%g m" />' % T5,
+              STEEL)
+        e = mesh["edges"]
+        m.face_selection("Buitenrand", e["u1"])
+        m.face_selection("SymY0", e["v0"])
+        m.face_selection("SymX0", e["v1"])
+        m.node_selection("Alle", range(1, len(m.nodes) + 1))
+        m.add('<surfacepressure selection="Buitenrand"><normal>-%g Pa'
+              '</normal></surfacepressure>' % P5)
+        m.add('<symmetry selection="SymY0"><x>0</x><y>1</y><z>0</z>'
+              '</symmetry>')
+        m.add('<symmetry selection="SymX0"><x>1</x><y>0</y><z>0</z>'
+              '</symmetry>')
+        # membraan: uit het vlak vast (anders vrije DZ-starre beweging)
+        m.add('<displacement selection="Alle"><value>0 m</value><x>0</x>'
+              '<y>0</y><z>1</z></displacement>')
+        return m
+    return build
+
+
+def build_ls05_solid(n):
+    def build():
+        m = Model("S30")
+        m.elset("Membraan", "Staal")
+        mesh = hexmesh(m, "Membraan", n, 2 * n, 1, _le1_map(n, 2 * n),
+                       order=2)
+        _steel(m)
+        f = mesh["faces"]
+        m.face_selection("Buitenrand", f["u1"])
+        m.face_selection("SymY0", f["v0"])
+        m.face_selection("SymX0", f["v1"])
+        m.node_selection("Zvast", [m.node(*PT_D)])
+        m.add('<surfacepressure selection="Buitenrand"><normal>-%g Pa'
+              '</normal></surfacepressure>' % P5)
+        m.add('<symmetry selection="SymY0"><x>0</x><y>1</y><z>0</z>'
+              '</symmetry>')
+        m.add('<symmetry selection="SymX0"><x>1</x><y>0</y><z>0</z>'
+              '</symmetry>')
+        m.add('<displacement selection="Zvast"><value>0 m</value><x>0</x>'
+              '<y>0</y><z>1</z></displacement>')
+        return m
+    return build
+
+
+def _ls05_cases():
+    out = []
+    ns = (2, 4, 8, 16)
+    hf = 1.25 / ns[-1]
+    for n in ns:
+        h = 1.25 / n
+        out.append(Case(
+            "LS-05-cq3-n%d" % n, GROUP,
+            "NAFEMS LE1, COQUE_3D quad8 %dx%d" % (n, 2 * n),
+            "lin_static_3d", build_ls05_shell(n),
+            [Check("sigma_yy in D (VM midden)",
+                   lambda r: r.at("vonmisesm", PT_D), ref=SIG5,
+                   tol=_tol(0.005, h, hf, 2), unit="Pa",
+                   source="NAFEMS LE1: 92,7 MPa")],
+            series="LS-05 COQUE_3D quad8", h=h,
+            note="In D is sigma_xx = tau_xy = 0 (vrije rand, symmetrie), "
+                 "dus von Mises = sigma_yy."))
+    for n in ns:
+        h = 1.25 / n
+        out.append(Case(
+            "LS-05-h20-n%d" % n, GROUP,
+            "NAFEMS LE1, hex20 %dx%dx1" % (n, 2 * n),
+            "lin_static_3d", build_ls05_solid(n),
+            [Check("sigma_yy in D",
+                   lambda r: r.at("stressyy", PT_D), ref=SIG5,
+                   tol=_tol(0.005, h, hf, 2), unit="Pa",
+                   source="NAFEMS LE1: 92,7 MPa (vlakke spanning)")],
+            series="LS-05 hex20", h=h,
+            note="Volumemodel, 1 element over de dikte, vlakken z vrij "
+                 "(sigma_yy over de dikte constant: vlakke spanning)."))
+    return out
+
+
+TESTS += _ls05_cases()
+
+
+# ------------------------------------------------------------------
+# LS-06 Ingeklemde balk met een veer aan de tip (veerrichting)
+# ------------------------------------------------------------------
+# Balk als LS-01 (Euler, exact), zijlast P in Y aan de tip; een veer
+# (Mecway Spring, line2) van de tip naar een vast punt. Langs Y:
+# delta = P / (3EI/L^3 + k). Onder 45 graden in het XY-vlak: de tip
+# beweegt (axiaal vrijwel star, EA/L = 6,6e7 N/m) alleen in Y, de veer
+# rekt delta/sqrt(2) en levert in Y k delta / 2: delta = P/(3EI/L^3 + k/2).
+K6, P6 = 1000.0, 10.0
+KB6 = 3 * E * I1 / L1 ** 3
+
+
+def build_ls06(angle_deg):
+    def build():
+        m = Model("S30")
+        m.elset("Balk", "Rond20")
+        _eids, nids = linemesh(m, "Balk", N1, (0, 0, 0), (L1, 0, 0))
+        m.mat("Rond20", '<geometric type="CircularBar" roundod="20 mm" />',
+              STEEL)
+        a = math.radians(angle_deg)
+        ground = m.node(L1 + 0.5 * math.sin(a), 0.5 * math.cos(a), 0.0)
+        m.elset("Veer", "Veer1000")
+        m.elem("Veer", "line2", [nids[-1], ground])
+        m.mat("Veer1000", '<mechanical type="Spring" springconstant="%g N/m" />'
+              % K6)
+        m.node_selection("Inklemming", [nids[0]])
+        m.node_selection("Grond", [ground])
+        m.node_selection("Tip", [nids[-1]])
+        m.add('<fixed selection="Inklemming" />')
+        m.add('<fixed selection="Grond" />')
+        m.add('<force selection="Tip"><x>0 N</x><y>%g N</y><z>0 N</z></force>'
+              % P6)
+        return m
+    return build
+
+
+TESTS += [
+    Case("LS-06a", GROUP, "Ingeklemde balk met veer langs Y aan de tip",
+         "lin_static_3d", build_ls06(0.0),
+         [Check("doorbuiging tip Y", lambda r: r.at("disply", (L1, 0, 0)),
+                ref=P6 / (KB6 + K6), tol=1e-3, unit="m",
+                source="P / (3EI/L^3 + k), balk en veer parallel"),
+          Check("veerkracht (reactie grond Y)", lambda r: -r.total(
+              "reactionforcey", "Grond"),
+                ref=K6 * P6 / (KB6 + K6), tol=1e-3, unit="N",
+                source="k delta")],
+         note="Veer langs de globale Y-as (KNOWN_BUGS 47: werkte voorheen "
+              "alleen in globaal X)."),
+    Case("LS-06b", GROUP, "Ingeklemde balk met veer onder 45 graden",
+         "lin_static_3d", build_ls06(45.0),
+         [Check("doorbuiging tip Y", lambda r: r.at("disply", (L1, 0, 0)),
+                ref=P6 / (KB6 + K6 / 2.0), tol=2e-3, unit="m",
+                source="P / (3EI/L^3 + k/2) (axiaal star, kleine "
+                       "verplaatsing)")],
+         note="Veer schuin in het XY-vlak: werkt langs de eigen as."),
+]

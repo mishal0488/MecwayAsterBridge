@@ -1,0 +1,1347 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# bridge_xfem.py
+# Breukmechanica met XFEM (STAPPENPLAN S6b): een scheur die niet in het mesh
+# zit, maar als levelsets door de elementen loopt. K_I/K_II/K_III en G langs
+# het front, zoals bij een gemeshte scheur (bridge_fracture.py, S6a), bij een
+# lineair statische analyse (lin_static_3d, MECA_STATIQUE). Gebruikersdoc:
+# docs/Breukmechanica.md par. 7 (EN: docs/en/Fracture_mechanics.md).
+# Compatibel met IronPython 2.7.9 (Mecway); de .comm-code draait in
+# Code-Aster (Python 3).
+#
+# Invoer: een regel '#ASTER-XFEM' in een vrij tekstveld van Mecway
+# (bridge_custom.py), bijv.
+#   #ASTER-XFEM vorm=CIRKEL, centrum=(0, 0, 0), r=0.02, normaal=(0, 0, 1)
+#   #ASTER-XFEM vorm=HALFVLAK, front=(0.05, 0, 0), normaal=(0, 1, 0),
+#   #ASTER-XFEM     richting=(1, 0, 0)
+# Een regel die met 'vorm=' (of 'shape=') begint, start een nieuwe scheur;
+# de andere regels horen bij de vorige. Lengtes in m (zoals alle #ASTER-
+# regels) of met een eenheid ('20 mm'). Sleutels: _KEYS.
+#
+# Of een vlakselectie in Mecway met voorvoegsel XFEM_
+# (bijv. XFEM_A; XFEM is in beide talen hetzelfde): de vlakken van
+# volume-elementen in het scheurvlak (vrije vorm, het scheurvlak ligt dan
+# op een knooplaag). bridge_mesh.write_mesh schrijft ze via mesh_cells als
+# QUAD4/TRIA3 (normalen gelijk gericht) in groep BRXF<n>S en de rand van
+# het vlak binnen het volume (het front) als SEG2 in BRXF<n>F; DEFI_FISS
+# GROUP_MA_FISS/GROUP_MA_FOND (catalogus defi_fiss_xfem.py; zo ook de
+# testcases sslv314b, sslv320d). Die cellen zitten niet in het model.
+#
+# Vertaling (catalogus Code-Aster 17.4, Cata/Commands):
+#   - DEFI_FISS_XFEM (defi_fiss_xfem.py) met DEFI_FISS FORM_FISS='ELLIPSE'/
+#     'RECTANGLE'/'DEMI_PLAN', eventueel GROUP_MA_ENRI;
+#     MODI_MODELE_XFEM (modi_modele_xfem.py) maakt van het model van de
+#     bridge (hernoemd tot model_sain) het XFEM-model 'model'; de lasten en
+#     MECA_STATIQUE gebruiken dat model (model_block).
+#   - Na MECA_STATIQUE (result_block): POST_MAIL_XFEM + POST_CHAM_XFEM geven
+#     de fysische verplaatsing en de spanning op een mesh dat de scheur
+#     volgt (post_mail_xfem.py, post_cham_xfem.py); PROJ_CHAMP
+#     COLLOCATION zet DEPL, SIGM_NOEU en SIEQ_NOEU terug op de knopen van
+#     het oorspronkelijke mesh (elke Mecway-knoop is een knoop van dat
+#     mesh); REAC_NODA komt uit het XFEM-resultaat (componenten DX/DY/DZ).
+#     Dat resultaat heet weer 'res' en gaat zoals altijd naar Mecway.
+#     Met de instelling med_export (MED-bestand voor ParaView) ook
+#     IMPR_RESU van res_xvisu (het mesh dat de scheur volgt, DEPL,
+#     SIGM_NOEU, SIEQ_NOEU) naar <model>_<run_id>_xfem.rmed (UNITE 81):
+#     daar is de opening van de scheur te zien (export_lines).
+#   - Na de export (k_block): per scheur en per front CALC_G_XFEM
+#     OPTION='CALC_K_G' (calc_g_xfem.py; THETA R_INF/R_SUP, NB_POINT_FOND,
+#     LISSAGE) en POST_K1_K2_K3 FISSURE= (post_k1_k2_k3.py), tabellen in de
+#     .mess en als <model>_<run_id>_xfem.csv; report() zet een samenvatting
+#     in de log en het statusvak.
+#
+# Gemeten bij de bouw (Code-Aster 17.4, docs/Verificatie.md BR-07..10):
+# hex8 en hex20 werken (XFEM kent lineaire en kwadratische elementen;
+# alarm XFEM_63 bij kwadratisch); het front mag door de elementen lopen en
+# het scheurvlak mag door knopen gaan.
+
+import io
+import math
+import os
+import re
+from collections import OrderedDict
+
+from bridge_utils import (log, tr, run_name, CONFIG_BRIDGE,
+                          get_active_analysis, parse_and_convert,
+                          work_dir_path)
+
+# Achtervoegsel van de tabel in de werkmap
+CSV_SUFFIX = "_xfem.csv"
+# MED-bestand voor ParaView met het mesh dat de scheur volgt (med_export)
+MED_SUFFIX = "_xfem.rmed"
+MED_UNIT = 81
+# Scheur uit een vlakselectie: voorvoegsel van de Mecway-naam
+# (hoofdletterongevoelig) en de groepen in het mesh (BRXF<n>S scheurvlak,
+# BRXF<n>F front; gereserveerd in bridge_mesh._GENERATED_NAME_RE)
+SEL_PREFIX = "XFEM_"
+SEL_GROUP = "BRXF"
+
+# Vormen: invoernaam -> eigen soort. CIRKEL is een ELLIPSE met a = b en een
+# normaal; HALFVLAK is Code-Aster's DEMI_PLAN (recht front, scheur aan
+# een kant ervan).
+_SHAPES = {
+    "ELLIPSE": "ELLIPSE", "ELLIPS": "ELLIPSE",
+    "CIRKEL": "CIRKEL", "CIRCLE": "CIRKEL",
+    "RECTANGLE": "RECTANGLE", "RECHTHOEK": "RECTANGLE",
+    "DEMI_PLAN": "DEMI_PLAN", "HALFVLAK": "DEMI_PLAN",
+    "HALF_PLANE": "DEMI_PLAN", "HALFPLANE": "DEMI_PLAN",
+}
+# Vorm -> verplichte sleutels
+_REQUIRED = {
+    "ELLIPSE": ("centre", "a", "b", "vect_x", "vect_y"),
+    "CIRKEL": ("centre", "r", "normal"),
+    "RECTANGLE": ("centre", "a", "b", "vect_x", "vect_y"),
+    "DEMI_PLAN": ("point", "normal", "dtan"),
+}
+# Gekromd front (geen krommingscorrectie in CALC_G_XFEM, zie _warn_curved)
+_CURVED = ("ELLIPSE", "CIRKEL")
+
+_KEYS = OrderedDict([
+    # sleutel -> (soort, synoniemen)
+    ("shape", ("txt", ("vorm", "shape", "form_fiss"))),
+    ("centre", ("vec", ("centrum", "centre", "center"))),
+    ("a", ("len", ("a", "demi_grand_axe"))),
+    ("b", ("len", ("b", "demi_petit_axe"))),
+    ("r", ("len", ("r", "straal", "radius"))),
+    ("vect_x", ("dir", ("vect_x",))),
+    ("vect_y", ("dir", ("vect_y",))),
+    ("normal", ("dir", ("normaal", "normal", "normale"))),
+    ("point", ("vec", ("front", "pfon", "punt", "point"))),
+    ("dtan", ("dir", ("richting", "direction", "dtan"))),
+    ("fillet", ("len", ("afronding", "fillet", "rayon_conge"))),
+    ("group", ("sel", ("groep", "group"))),
+    ("name", ("txt", ("naam", "name"))),
+    ("points", ("int", ("punten", "points", "nb_point_fond"))),
+    ("smoothing", ("txt", ("glad", "smoothing", "lissage"))),
+    ("degree", ("int", ("graad", "degree", "degre"))),
+    ("r_inf", ("len", ("r_inf",))),
+    ("r_sup", ("len", ("r_sup",))),
+])
+_ALIAS = dict((a, k) for k, (_s, names) in _KEYS.items() for a in names)
+_SEL_RE = re.compile(r"^<<([^<>]+)>>$")
+_NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+
+# Volume-elementen die Code-Aster's XFEM kent (lineair en kwadratisch;
+# hex8 en hex20 gemeten, de rest NIET geverifieerd)
+_XFEM_TYPES = ("HEXA", "PENTA", "PYRAM", "TETRA")
+
+# Mesh-advies: WARNING als de elementen aan het front groter zijn dan
+# scheurmaat / _H_RATIO (scheurmaat = kleinste halve as of straal). Gemeten
+# (BR-08, cirkelvormige scheur, hex8): zie docs/Breukmechanica.md par. 7.4.
+_H_RATIO = 10.0
+
+
+# ==========================================
+# LEZEN
+# ==========================================
+def _split(body):
+    """Stukken 'sleutel = waarde' gescheiden door komma's buiten haakjes."""
+    parts, depth, cur = [], 0, []
+    for ch in body:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _length(text):
+    """Lengte in m: een getal (SI) of een getal met eenheid ('20 mm')."""
+    text = text.strip()
+    if re.match(r"^[-+]?[0-9.]+(?:[eE][-+]?[0-9]+)?$", text):
+        return float(text)
+    if not re.match(r"^[-+]?[0-9.]", text):
+        raise ValueError(text)
+    return float(parse_and_convert(text, "length"))
+
+
+def _vector(raw, as_length):
+    """'(x, y, z)' of '(x, y, z) mm' -> tuple van drie floats."""
+    raw = raw.strip()
+    unit = ""
+    if raw.startswith("(") and ")" in raw:
+        unit = raw[raw.rindex(")") + 1:].strip()
+        raw = raw[:raw.rindex(")") + 1]
+    if not (raw.startswith("(") and raw.endswith(")")):
+        raise ValueError(raw)
+    vals = []
+    for x in raw[1:-1].split(","):
+        x = x.strip()
+        if as_length:
+            vals.append(_length(x + (" " + unit if unit else "")))
+        else:
+            vals.append(float(x))
+    if len(vals) != 3:
+        raise ValueError(raw)
+    return tuple(vals)
+
+
+def group_lines(bodies):
+    """#ASTER-XFEM-regels samenvoegen tot scheuren: een regel die met
+    'vorm=' (of 'shape=') begint, start een nieuwe scheur."""
+    cracks = []
+    for body in bodies:
+        text = body.strip().rstrip(",")
+        if not text:
+            continue
+        key = text.split("=", 1)[0].strip().lower()
+        if _ALIAS.get(key) == "shape" or not cracks:
+            cracks.append([])
+        cracks[-1].append(text)
+    return [", ".join(c) for c in cracks]
+
+
+def parse_specs(bodies):
+    """
+    [spec] uit de #ASTER-XFEM-regels; spec = dict met de sleutels van
+    _KEYS (getallen in SI, vectoren als tuple, selecties als Mecway-naam).
+    None (met ERROR in de log) bij een fout.
+    """
+    specs = []
+    names = set()
+    for k, text in enumerate(group_lines(bodies)):
+        spec = {"index": k + 1, "text": text}
+        for part in _split(text):
+            key, sep, raw = part.partition("=")
+            key = key.strip().lower()
+            raw = raw.strip()
+            name = _ALIAS.get(key)
+            if not sep or name is None:
+                log(tr("ERROR: #ASTER-XFEM: onbekend of onvolledig '{0}'. "
+                       "Bekend: {1}.",
+                       "ERROR: #ASTER-XFEM: unknown or incomplete '{0}'. "
+                       "Known: {1}.").format(part, ", ".join(sorted(_ALIAS))))
+                return None
+            kind = _KEYS[name][0]
+            try:
+                if kind == "len":
+                    spec[name] = _length(raw)
+                elif kind == "vec":
+                    spec[name] = _vector(raw, True)
+                elif kind == "dir":
+                    spec[name] = _vector(raw, False)
+                elif kind == "int":
+                    spec[name] = int(raw)
+                elif kind == "sel":
+                    m = _SEL_RE.match(raw)
+                    if not m:
+                        raise ValueError(raw)
+                    spec[name] = m.group(1).strip()
+                else:
+                    if not raw:
+                        raise ValueError(raw)
+                    spec[name] = raw.strip("'\"")
+            except ValueError:
+                log(tr("ERROR: #ASTER-XFEM: '{0}' heeft geen geldige waarde "
+                       "({1}).",
+                       "ERROR: #ASTER-XFEM: '{0}' has no valid value "
+                       "({1}).").format(key, {
+                           "len": tr("lengte in m of met eenheid",
+                                     "length in m or with a unit"),
+                           "vec": "(x, y, z)", "dir": "(dx, dy, dz)",
+                           "int": tr("geheel getal", "integer"),
+                           "sel": "<<Mecway-selectie>>",
+                           "txt": tr("tekst", "text")}[kind]))
+                return None
+        if not _complete(spec):
+            return None
+        if spec["name"] in names:
+            log(tr("ERROR: #ASTER-XFEM: twee scheuren met naam '{0}'.",
+                   "ERROR: #ASTER-XFEM: two cracks named '{0}'.").format(
+                       spec["name"]))
+            return None
+        names.add(spec["name"])
+        specs.append(spec)
+    return specs
+
+
+def _complete(spec):
+    """Controles en standaardwaarden van een scheur; False (ERROR) bij een
+    fout. Vult spec["form"] (Code-Aster-vorm) en de assen."""
+    k = spec["index"]
+
+    def err(nl, en):
+        log(tr("ERROR: #ASTER-XFEM (scheur {0}): " + nl,
+               "ERROR: #ASTER-XFEM (crack {0}): " + en).format(k))
+        return False
+    shape = _SHAPES.get(str(spec.get("shape", "")).upper())
+    if shape is None:
+        return err("geef de vorm: vorm=ELLIPSE, CIRKEL, RECHTHOEK of "
+                   "HALFVLAK.",
+                   "give the shape: shape=ELLIPSE, CIRCLE, RECTANGLE or "
+                   "HALF_PLANE.")
+    spec["kind"] = shape
+    missing = [key for key in _REQUIRED[shape] if key not in spec]
+    if missing:
+        return err("ontbreekt bij {0}: {1}.".format(
+            shape, ", ".join(_KEYS[m][1][0] for m in missing)),
+            "missing for {0}: {1}.".format(
+            shape, ", ".join(_KEYS[m][1][1] for m in missing)))
+    for key in ("a", "b", "r"):
+        if key in spec and spec[key] <= 0.0:
+            return err("{0} moet > 0 zijn.".format(key),
+                       "{0} must be > 0.".format(key))
+    for key in ("vect_x", "vect_y", "normal", "dtan"):
+        if key in spec:
+            if _norm(spec[key]) <= 0.0:
+                return err("{0} is een nulvector.".format(key),
+                           "{0} is a zero vector.".format(key))
+            spec[key] = _unit(spec[key])
+    if shape == "CIRKEL":
+        ex, ey = _plane_axes(spec["normal"])
+        spec.update({"form": "ELLIPSE", "a": spec["r"], "b": spec["r"],
+                     "vect_x": ex, "vect_y": ey})
+    else:
+        spec["form"] = shape
+    if spec["form"] in ("ELLIPSE", "RECTANGLE"):
+        if abs(_dot(spec["vect_x"], spec["vect_y"])) > 1.0e-3:
+            return err("vect_x en vect_y staan niet loodrecht op elkaar.",
+                       "vect_x and vect_y are not perpendicular.")
+        spec["normal"] = _unit(_cross(spec["vect_x"], spec["vect_y"]))
+    if spec["form"] == "DEMI_PLAN":
+        if abs(_dot(spec["normal"], spec["dtan"])) > 1.0e-3:
+            return err("richting (de groeirichting van het front, in het "
+                       "scheurvlak) moet loodrecht op de normaal staan.",
+                       "direction (the growth direction of the front, in "
+                       "the crack plane) must be perpendicular to the "
+                       "normal.")
+    if spec.get("fillet") is not None and spec["form"] != "RECTANGLE":
+        return err("afronding hoort alleen bij RECHTHOEK.",
+                   "fillet only belongs to RECTANGLE.")
+    if spec.get("fillet", 0.0) < 0.0:
+        return err("afronding moet >= 0 zijn.", "fillet must be >= 0.")
+    name = spec.get("name") or str(k)
+    if not _NAME_RE.match(name):
+        return err("naam '{0}': alleen letters, cijfers en _ (max. 16)."
+                   .format(name),
+                   "name '{0}': only letters, digits and _ (max. 16)."
+                   .format(name))
+    spec["name"] = name
+    smooth = spec.get("smoothing")
+    if smooth is None:
+        # Standaard (gemeten bij de bouw, docs/Breukmechanica.md par. 7.3):
+        # LAGRANGE bij een recht front (de frontpunten liggen dan
+        # regelmatig), LEGENDRE bij een gekromd front (onregelmatige
+        # snijpunten met de elementvlakken: LAGRANGE oscilleert daar).
+        smooth = "LEGENDRE" if shape in _CURVED else "LAGRANGE"
+    smooth = smooth.upper()
+    if smooth not in ("LEGENDRE", "LAGRANGE"):
+        return err("glad={0}: kies LEGENDRE of LAGRANGE.".format(smooth),
+                   "smoothing={0}: choose LEGENDRE or LAGRANGE.".format(
+                       smooth))
+    spec["smoothing"] = smooth
+    if spec.get("degree") is not None and not 0 <= spec["degree"] <= 7:
+        return err("graad {0}: toegestaan 0 .. 7.".format(spec["degree"]),
+                   "degree {0}: allowed 0 .. 7.".format(spec["degree"]))
+    if spec.get("points") is not None and spec["points"] < 2:
+        return err("punten moet >= 2 zijn.", "points must be >= 2.")
+    return True
+
+
+def specs(model_data):
+    """Scheuren uit model_data["aster_custom"]["xfem"] (gecached), [] zonder,
+    None bij een fout."""
+    if "_xfem_specs" in model_data:
+        return model_data["_xfem_specs"]
+    bodies = (model_data.get("aster_custom") or {}).get("xfem") or []
+    out = parse_specs(bodies) if bodies else []
+    model_data["_xfem_specs"] = out
+    return out
+
+
+def is_requested(model_data):
+    """True als het model #ASTER-XFEM-regels of XFEM_-vlakselecties
+    heeft."""
+    return bool((model_data.get("aster_custom") or {}).get("xfem") or
+                selection_names(model_data))
+
+
+def selection_names(model_data):
+    """Mecway-namen van de vlakselecties met voorvoegsel XFEM_
+    (hoofdletterongevoelig), in de volgorde van de .liml."""
+    return [n for n in model_data.get("face_selection_faces", {})
+            if n.upper().startswith(SEL_PREFIX) and len(n) > len(SEL_PREFIX)]
+
+
+def active_here():
+    """True als de actieve analyse lineair statisch (MECA_STATIQUE) is."""
+    try:
+        return get_active_analysis().get("solver_command") == "MECA_STATIQUE"
+    except KeyError:
+        return False
+
+
+# ==========================================
+# GEOMETRIE (levelsets zoals Code-Aster ze voor de vorm opbouwt)
+# ==========================================
+def _sub(a, b):
+    return [a[i] - b[i] for i in range(3)]
+
+
+def _dot(a, b):
+    return sum(a[i] * b[i] for i in range(3))
+
+
+def _cross(a, b):
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]]
+
+
+def _norm(a):
+    return math.sqrt(_dot(a, a))
+
+
+def _unit(a):
+    n = _norm(a)
+    return tuple(c / n for c in a)
+
+
+def _plane_axes(normal):
+    """Twee loodrechte eenheidsvectoren in het vlak met deze normaal: de
+    globale as die het minst langs de normaal ligt, geprojecteerd (vast
+    gekozen, zodat dezelfde invoer dezelfde assen geeft)."""
+    n = _unit(normal)
+    axes = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    e = min(axes, key=lambda v: abs(_dot(v, n)))
+    ex = _unit([e[i] - _dot(e, n) * n[i] for i in range(3)])
+    ey = _unit(_cross(n, ex))
+    return ex, ey
+
+
+def levelsets(spec, p):
+    """(lsn, lst) van punt p: lsn = afstand tot het scheurvlak, lst < 0
+    binnen de scheur (> 0 erbuiten). Benadering van wat DEFI_FISS_XFEM
+    opbouwt; alleen het teken wordt gebruikt (snijden de scheur en het
+    front elementen?)."""
+    if spec["form"] == "DEMI_PLAN":
+        d = _sub(p, spec["point"])
+        return _dot(d, spec["normal"]), _dot(d, spec["dtan"])
+    d = _sub(p, spec["centre"])
+    lsn = _dot(d, spec["normal"])
+    u, v = _dot(d, spec["vect_x"]), _dot(d, spec["vect_y"])
+    a, b = spec["a"], spec["b"]
+    if spec["form"] == "ELLIPSE":
+        return lsn, (math.sqrt((u / a) ** 2 + (v / b) ** 2) - 1.0) * min(a, b)
+    return lsn, max(abs(u) - a, abs(v) - b)
+
+
+def crack_size(spec):
+    """Kleinste maat van de scheur (halve as of straal), of None (HALFVLAK:
+    geen eigen maat)."""
+    if spec["form"] in ("DEMI_PLAN", "MAILLAGE"):
+        return None
+    return min(spec["a"], spec["b"])
+
+
+def _cut_elements(model_data, spec, conn):
+    """(gesneden elementen, frontelementen, elementgrootte aan het front).
+    Gesneden: lsn wisselt van teken over de hoekknopen en minstens een
+    hoekknoop ligt binnen de scheur (lst < 0); front: daarbij is lst ook
+    ergens >= 0 (een front op een elementgrens, lst = 0 in de knopen,
+    telt mee)."""
+    nodes = model_data.get("mesh_nodes", {})
+    import bridge_fracture
+    cut, front, h = [], [], 0.0
+    for eid in sorted(conn):
+        atype, cn = conn[eid]
+        base = None
+        for prefix in _XFEM_TYPES:
+            if atype.startswith(prefix):
+                base = prefix
+        if base is None:
+            continue
+        corners = cn[:bridge_fracture._CORNERS[base]]
+        ls = [levelsets(spec, nodes[n]) for n in corners]
+        lsn = [x[0] for x in ls]
+        lst = [x[1] for x in ls]
+        if not (min(lsn) <= 0.0 <= max(lsn)) or min(lst) >= 0.0:
+            continue
+        cut.append(eid)
+        if max(lst) >= 0.0:
+            front.append(eid)
+            # Grootte loodrecht op het front (de richtingen die voor K
+            # tellen): het bereik van lsn en lst over de hoekknopen
+            # (beide zijn afstanden, of bij de ellips ongeveer)
+            h = max(h, max(lsn) - min(lsn), max(lst) - min(lst))
+    return cut, front, h
+
+
+# ==========================================
+# SCHEUR UIT EEN VLAKSELECTIE (XFEM_<naam>)
+# ==========================================
+def _volume_base(atype):
+    """Volumetype (HEXA, PENTA, PYRAM, TETRA) van een Code-Aster-type, of
+    None."""
+    for prefix in _XFEM_TYPES:
+        if atype.startswith(prefix):
+            return prefix
+    return None
+
+
+def _ring(corners):
+    return list(zip(corners, corners[1:] + corners[:1]))
+
+
+def _skin_edges(conn):
+    """Ribben (frozenset van twee hoekknopen) van de buitenkant van het
+    volume: van de vlakken die bij precies een volume-element horen."""
+    import bridge_mesh
+    counts = {}
+    for eid in conn:
+        atype, cn = conn[eid]
+        base = _volume_base(atype)
+        if base is None:
+            continue
+        for corners in bridge_mesh._FACE_CORNERS[base].values():
+            face = [cn[i] for i in corners]
+            key = frozenset(face)
+            counts[key] = (counts.get(key, (0, face))[0] + 1, face)
+    edges = set()
+    for n, face in counts.values():
+        if n == 1:
+            edges.update(frozenset(e) for e in _ring(face))
+    return edges
+
+
+def _orient(faces, nodes):
+    """Richt de vlakken (lijsten hoekknopen) gelijk: twee buurvlakken
+    doorlopen hun gedeelde rib in tegengestelde richting. Daarna per
+    samenhangend stuk een vaste keuze, zodat dezelfde scheur altijd dezelfde
+    normaal krijgt, welke kant de gebruiker ook koos: de normaal van de
+    levelset (LNNO > 0 aan die kant) heeft zijn grootste component positief.
+    Gemeten (Code-Aster 17.4, LNNO/LTNO met CREA_CHAMP EXTR vergeleken met
+    DEMI_PLAN): LNNO ligt aan de kant tegengesteld aan de rechtshandige
+    normaal van de knoopvolgorde van de cellen; daarom wordt de som van de
+    vlaknormalen (Newell) hier negatief gemaakt. Met normaal +y zijn LNNO en
+    LTNO van BR-13 gelijk aan die van BR-09 (HALFVLAK, normaal +y). Waarom
+    een vaste keuze: bij een scheurvlak op een knooplaag (levelset 0 in die
+    knopen) hangt de oplossing iets van de normaal af; met de andere normaal
+    ging in BR-13 de bovenlip 1,8 % verder open dan de onderlip (K gelijk
+    binnen 0,05 %).
+    Geeft (vlakken, fout) met fout "vertakt" (een rib in meer dan twee
+    vlakken) of None."""
+    by_edge = {}
+    for i, f in enumerate(faces):
+        for e in _ring(f):
+            by_edge.setdefault(frozenset(e), []).append(i)
+    if any(len(v) > 2 for v in by_edge.values()):
+        return faces, "vertakt"
+    out = list(faces)
+    done = set()
+    for start in range(len(faces)):
+        if start in done:
+            continue
+        done.add(start)
+        todo = [start]
+        piece = [start]
+        while todo:
+            i = todo.pop()
+            for a, b in _ring(out[i]):
+                for j in by_edge[frozenset((a, b))]:
+                    if j in done:
+                        continue
+                    # het buurvlak moet de rib als (b, a) doorlopen
+                    if (a, b) in _ring(out[j]):
+                        out[j] = list(reversed(out[j]))
+                    done.add(j)
+                    todo.append(j)
+                    piece.append(j)
+        normal = [0.0, 0.0, 0.0]
+        for i in piece:
+            for a, b in _ring(out[i]):
+                pa, pb = nodes[a], nodes[b]
+                for c, (p, q) in enumerate(((1, 2), (2, 0), (0, 1))):
+                    normal[c] += (pa[p] - pb[p]) * (pa[q] + pb[q])
+        big = max(range(3), key=lambda c: abs(normal[c]))
+        if normal[big] > 0.0:
+            for i in piece:
+                out[i] = list(reversed(out[i]))
+    return out, None
+
+
+def _front_pieces(edges):
+    """Ribben (a, b) van het front als samenhangende stukken: [[knopen]]
+    langs de lijn (een vertakking eindigt een stuk)."""
+    nbr = {}
+    for a, b in edges:
+        nbr.setdefault(a, set()).add(b)
+        nbr.setdefault(b, set()).add(a)
+    seen = set()
+    pieces = []
+    ends = sorted(n for n in nbr if len(nbr[n]) == 1)
+    for start in ends + sorted(nbr):
+        if start in seen:
+            continue
+        line = [start]
+        seen.add(start)
+        cur = start
+        while True:
+            nxt = sorted(n for n in nbr[cur] if n not in seen)
+            if not nxt:
+                break
+            cur = nxt[0]
+            seen.add(cur)
+            line.append(cur)
+        pieces.append(line)
+    return pieces
+
+
+def mesh_cells(model_data, conn, faces_of=None):
+    """
+    Cellen van de scheuren uit XFEM_-vlakselecties voor
+    bridge_mesh.write_mesh: per scheur het scheurvlak als QUAD4/TRIA3
+    (hoekknopen; de normalen gelijk gericht, _orient) in groep BRXF<n>S en
+    het front als SEG2 in BRXF<n>F. Front = de rand van het vlak die niet op
+    de buitenkant van het volume ligt (een rand op een vrij oppervlak of
+    een symmetrievlak is de mond van de scheur). Lineaire cellen ook bij
+    kwadratische elementen: DEFI_FISS_XFEM rekent er alleen afstanden mee
+    (levelsets; NIET geverifieerd in de Fortran-bron, wel gemeten: BR-13).
+    faces_of(eid, fid) -> knopen van het vlak (Mecway-API), anders de
+    tabel bridge_mesh._FACE_CORNERS. Vult model_data["_xfem_sel_specs"]
+    (scheuren voor model_block).
+
+    Returns OrderedDict {groep: [(type, [knopen])]} ({} zonder XFEM_-
+    selecties of in een andere analyse), None bij een fout (ERROR).
+    """
+    import bridge_fracture
+    import bridge_mesh
+    model_data["_xfem_sel_specs"] = []
+    out = OrderedDict()
+    if not active_here():
+        return out
+    for kind, key in (("node", "node_groups"),
+                      ("element", "element_selections")):
+        wrong = [n for n in model_data.get(key, {})
+                 if n.upper().startswith(SEL_PREFIX)]
+        if wrong:
+            log(tr("WARNING: XFEM: '{0}' is een {1}; alleen een "
+                   "vlakselectie met voorvoegsel XFEM_ is een scheur "
+                   "(docs/Breukmechanica.md par. 7.8).",
+                   "WARNING: XFEM: '{0}' is a {1}; only a face selection "
+                   "with prefix XFEM_ is a crack "
+                   "(docs/en/Fracture_mechanics.md par. 7.8).").format(
+                       wrong[0], tr("knoopselectie", "node selection")
+                       if kind == "node" else tr("elementselectie",
+                                                 "element selection")))
+    names = selection_names(model_data)
+    if not names:
+        return out
+    nodes = model_data.get("mesh_nodes", {})
+    skin = _skin_edges(conn)
+    for k, sel in enumerate(names):
+        def err(nl, en):
+            log(tr("ERROR: XFEM-scheur '{0}': " + nl,
+                   "ERROR: XFEM crack '{0}': " + en).format(sel))
+            return None
+        faces, keys = [], set()
+        for eid, fid in model_data["face_selection_faces"][sel]:
+            if eid not in conn or _volume_base(conn[eid][0]) is None:
+                return err("vlak {0} van element {1} is geen vlak van een "
+                           "volume-element.".format(fid, eid),
+                           "face {0} of element {1} is not a face of a "
+                           "solid element.".format(fid, eid))
+            atype, cn = conn[eid]
+            nc = bridge_fracture._CORNERS[_volume_base(atype)]
+            fn = (faces_of(eid, fid) if faces_of is not None else
+                  bridge_mesh._face_from_table(atype, cn, fid)) or []
+            corners = [n for n in fn if n in cn[:nc]]
+            key = frozenset(corners)
+            if len(corners) < 3 or key in keys:
+                continue      # hetzelfde vlak van beide kanten gekozen
+            keys.add(key)
+            faces.append(corners)
+        if not faces:
+            return err("de selectie heeft geen vlakken.",
+                       "the selection has no faces.")
+        faces, problem = _orient(faces, nodes)
+        if problem:
+            return err("een rib hoort bij meer dan twee vlakken (vertakt "
+                       "scheurvlak); XFEM kent per scheur een vlak zonder "
+                       "vertakking. Maak er meer XFEM_-selecties van.",
+                       "an edge belongs to more than two faces (branched "
+                       "crack surface); XFEM knows one surface per crack "
+                       "without branches. Make several XFEM_ selections.")
+        count = {}
+        for f in faces:
+            for e in _ring(f):
+                count[frozenset(e)] = count.get(frozenset(e), 0) + 1
+        front = [e for f in faces for e in _ring(f)
+                 if count[frozenset(e)] == 1 and frozenset(e) not in skin]
+        crack_nodes = set(n for f in faces for n in f)
+        front_keys = set(frozenset(e) for e in front)
+        # Elementen aan de scheur (melding) en aan het front (melding,
+        # elementgrootte); knopen van de elementen die het scheurvlak raken
+        # (schuine voorwaarden, warn_oblique)
+        cut, front_eids, h, cut_nodes = [], [], 0.0, set()
+        for eid in sorted(conn):
+            atype, cn = conn[eid]
+            base = _volume_base(atype)
+            if base is None:
+                continue
+            corners = cn[:bridge_fracture._CORNERS[base]]
+            cs = set(corners)
+            if not cs & crack_nodes:
+                continue
+            cut_nodes.update(cn)
+            if any(key <= cs for key in keys):
+                cut.append(eid)
+            if any(key <= cs for key in front_keys):
+                front_eids.append(eid)
+                for p, q in bridge_fracture._EDGES[base]:
+                    h = max(h, _norm(_sub(nodes[corners[p]],
+                                          nodes[corners[q]])))
+        pieces = _front_pieces(front)
+        curved = any(bridge_fracture.front_shape(
+            [nodes[n] for n in piece])[0] != "recht" for piece in pieces)
+        name = re.sub(r"[^A-Za-z0-9_]", "_", sel[len(SEL_PREFIX):])[:16]
+        group = "{0}{1}".format(SEL_GROUP, k + 1)
+        spec = {"index": "'{0}'".format(sel), "text": "<<{0}>>".format(sel),
+                "name": name, "kind": "SELECTIE", "form": "MAILLAGE",
+                "selection": sel, "fiss_group": group + "S",
+                "front_group": group + "F", "curved": curved,
+                # Standaard zoals bij de vormen (_complete): LAGRANGE bij
+                # een recht front, LEGENDRE bij een gekromd front
+                "smoothing": "LEGENDRE" if curved else "LAGRANGE",
+                "cut": cut, "front_eids": front_eids, "h_front": h,
+                "cut_nodes": cut_nodes}
+        model_data["_xfem_sel_specs"].append(spec)
+        out[spec["fiss_group"]] = [
+            ("TRIA3" if len(f) == 3 else "QUAD4", f) for f in faces]
+        if front:
+            out[spec["front_group"]] = [("SEG2", list(e)) for e in front]
+        log("INFO: XFEM, scheur {0} uit vlakselectie '{1}': {2} vlakken, "
+            "front {3} ribben in {4} stuk(ken) ({5}), groepen {6}/{7}."
+            .format(name, sel, len(faces), len(front), len(pieces),
+                    "gekromd" if curved else "recht", spec["fiss_group"],
+                    spec["front_group"]))
+    return out
+
+
+# ==========================================
+# .COMM: MODEL
+# ==========================================
+def _fmt(v):
+    return "{0!r}".format(float(v))
+
+
+def _tup(v):
+    return "(" + ", ".join(_fmt(c) for c in v) + ")"
+
+
+def _defi_fiss(spec):
+    """Tekst van DEFI_FISS=_F(...) (catalogus defi_fiss_xfem.py)."""
+    f = spec["form"]
+    if f == "MAILLAGE":
+        # Scheurvlak en front als cellen in het mesh (mesh_cells)
+        return "_F(GROUP_MA_FISS='{0}', GROUP_MA_FOND='{1}')".format(
+            spec["fiss_group"], spec["front_group"])
+    if f == "DEMI_PLAN":
+        return ("_F(FORM_FISS='DEMI_PLAN', PFON={0}, NORMALE={1},\n"
+                "                     DTAN={2})").format(
+                    _tup(spec["point"]), _tup(spec["normal"]),
+                    _tup(spec["dtan"]))
+    extra = ""
+    if f == "RECTANGLE" and spec.get("fillet"):
+        extra = ", RAYON_CONGE={0}".format(_fmt(spec["fillet"]))
+    return ("_F(FORM_FISS='{0}', DEMI_GRAND_AXE={1}, DEMI_PETIT_AXE={2}{3},\n"
+            "                     CENTRE={4}, VECT_X={5},\n"
+            "                     VECT_Y={6})").format(
+                f, _fmt(spec["a"]), _fmt(spec["b"]), extra,
+                _tup(spec["centre"]), _tup(spec["vect_x"]),
+                _tup(spec["vect_y"]))
+
+
+def _check_model(model_data):
+    """Alleen volume-elementen met MODELISATION='3D' (XFEM in Code-Aster;
+    de resultaten gaan via een 3D-hulpmodel terug, result_block). ERROR en
+    False anders."""
+    import bridge_mesh
+    shapes = model_data.get("elem_shapes", {})
+    other = sorted(set(s for s in shapes.values()
+                       if s not in bridge_mesh._SOLID_SHAPES))
+    if other:
+        log(tr("ERROR: #ASTER-XFEM werkt alleen in een model met alleen "
+               "volume-elementen; dit model heeft ook {0}. Modelleer het "
+               "deel met de scheur in volume-elementen, of gebruik een "
+               "gemeshte scheur (SCHEUR_-selecties).",
+               "ERROR: #ASTER-XFEM only works in a model with only solid "
+               "elements; this model also has {0}. Model the part with the "
+               "crack in solid elements, or use a meshed crack (CRACK_ "
+               "selections).").format(", ".join(other)))
+        return False
+    mods = sorted(set(m for m in model_data.get(
+        "elset_modelisations", {}).values() if m != "3D"))
+    if mods or model_data.get("poi1_groups") or model_data.get("discretes"):
+        log(tr("ERROR: #ASTER-XFEM: XFEM kent alleen MODELISATION '3D' "
+               "(hier ook {0}). Zet elem_hex8 op '3D' of 'LINE_QUAD' "
+               "(pagina Elementen) en gebruik geen losse knopen of veren.",
+               "ERROR: #ASTER-XFEM: XFEM only knows MODELISATION '3D' "
+               "(here also {0}). Set elem_hex8 to '3D' or 'LINE_QUAD' "
+               "(Elements page) and use no loose nodes or springs.").format(
+                   ", ".join(mods) or tr("losse knopen/veren",
+                                         "loose nodes/springs")))
+        return False
+    return True
+
+
+def model_block(model_data, analysis, block):
+    """
+    AFFE_MODELE van de bridge (block) met de XFEM-scheuren: het gezonde
+    model heet model_sain, daarna DEFI_FISS_XFEM per scheur en
+    model = MODI_MODELE_XFEM. block ongewijzigd zonder #ASTER-XFEM (of in
+    een andere analyse); None bij een fout (ERROR in de log). Controleert
+    het model en de ligging van elke scheur in het mesh.
+    """
+    model_data["xfem"] = []
+    if not is_requested(model_data):
+        return block
+    if not active_here():
+        return block      # generate_AsterSolver_files meldt het (WARNING)
+    cracks = specs(model_data)
+    if cracks is None:
+        return None
+    # Scheuren uit XFEM_-vlakselecties (bridge_mesh.write_mesh ->
+    # mesh_cells); de namen moeten uniek blijven
+    cracks = cracks + model_data.get("_xfem_sel_specs", [])
+    seen = set()
+    for c in cracks:
+        if c["name"] in seen:
+            log(tr("ERROR: XFEM: twee scheuren met naam '{0}' (#ASTER-XFEM "
+                   "naam= of XFEM_<naam>).",
+                   "ERROR: XFEM: two cracks named '{0}' (#ASTER-XFEM name= "
+                   "or XFEM_<name>).").format(c["name"]))
+            return None
+        seen.add(c["name"])
+    if not _check_model(model_data):
+        return None
+    if "model = AFFE_MODELE(" not in block:
+        log("ERROR: XFEM: AFFE_MODELE van de bridge niet gevonden.")
+        return None
+    conn = model_data.get("_conn") or {}
+    renames = model_data.get("selection_renames", {})
+    elsel = model_data.get("element_selections", {})
+    lines = ["", "# " + "=" * 53,
+             "# XFEM-SCHEUREN (bridge: #ASTER-XFEM, bridge_xfem.py,",
+             "# docs/Breukmechanica.md par. 7): levelsets in het gezonde",
+             "# model, daarna het XFEM-model 'model' voor lasten en solve",
+             "# " + "=" * 53]
+    names = []
+    cut_nodes = set()
+    for c in cracks:
+        if c["form"] == "MAILLAGE":
+            cut, front, h = c["cut"], c["front_eids"], c["h_front"]
+            cut_nodes.update(c["cut_nodes"])
+        else:
+            cut, front, h = _cut_elements(model_data, c, conn)
+        for eid in cut:
+            cut_nodes.update(conn[eid][1])
+        if not cut:
+            log(tr("ERROR: #ASTER-XFEM (scheur {0}): de scheur snijdt geen "
+                   "enkel volume-element. Ligt hij in het model? Coordinaten "
+                   "en lengtes zijn in m (of geef een eenheid, bijv. "
+                   "'r=20 mm').",
+                   "ERROR: #ASTER-XFEM (crack {0}): the crack cuts no solid "
+                   "element. Is it inside the model? Coordinates and "
+                   "lengths are in m (or give a unit, e.g. 'r=20 mm')."
+                   ).format(c["name"]))
+            return None
+        if not front and c["form"] == "MAILLAGE":
+            log(tr("ERROR: XFEM-scheur '{0}': de vlakselectie heeft geen "
+                   "rand binnen het volume (geen front): de scheur snijdt "
+                   "het model helemaal door, of de vlakken liggen op de "
+                   "buitenkant. Selecteer de vlakken in het scheurvlak "
+                   "binnen het model (docs/Breukmechanica.md par. 7.8).",
+                   "ERROR: XFEM crack '{0}': the face selection has no "
+                   "edge inside the solid (no front): the crack cuts all "
+                   "the way through the model, or the faces are on the "
+                   "outside. Select the faces in the crack plane inside the "
+                   "model (docs/en/Fracture_mechanics.md par. 7.8).").format(
+                       c["selection"]))
+            return None
+        if not front:
+            log(tr("ERROR: #ASTER-XFEM (scheur {0}): het front ligt buiten "
+                   "het model (de scheur snijdt het model helemaal door); "
+                   "dan zijn er geen K en G. Maak de scheur kleiner dan het "
+                   "model; coordinaten en lengtes zijn in m (of geef een "
+                   "eenheid).",
+                   "ERROR: #ASTER-XFEM (crack {0}): the front lies outside "
+                   "the model (the crack cuts all the way through the "
+                   "model); there are then no K and G. Make the crack "
+                   "smaller than the model; coordinates and lengths are in "
+                   "m (or give a unit).").format(c["name"]))
+            return None
+        size = crack_size(c)
+        c["h_front"] = h
+        log("INFO: XFEM, scheur {0} ({1}): {2} gesneden elementen, waarvan "
+            "{3} aan het front (elementgrootte loodrecht op het front {4:.4g} "
+            "m{5}).".format(
+                c["name"], c["kind"], len(cut), len(front), h,
+                "" if size is None else ", scheurmaat {0:.4g} m".format(size)))
+        if size is not None and h > size / _H_RATIO:
+            log(tr("WARNING: #ASTER-XFEM (scheur {0}): de elementen aan het "
+                   "front ({1:.3g} m) zijn groter dan 1/{2:g} van de "
+                   "scheurmaat ({3:.3g} m); K en G worden dan onnauwkeurig "
+                   "(docs/Breukmechanica.md par. 7.4). Verfijn het mesh rond "
+                   "het front.",
+                   "WARNING: #ASTER-XFEM (crack {0}): the elements at the "
+                   "front ({1:.3g} m) are larger than 1/{2:g} of the crack "
+                   "size ({3:.3g} m); K and G then become inaccurate "
+                   "(docs/en/Fracture_mechanics.md par. 7.4). Refine the "
+                   "mesh around the front.").format(
+                       c["name"], h, _H_RATIO, size))
+        enri = ""
+        if c.get("group"):
+            if c["group"] not in elsel:
+                log(tr("ERROR: #ASTER-XFEM (scheur {0}): groep '{1}' is geen "
+                       "elementselectie van het model.",
+                       "ERROR: #ASTER-XFEM (crack {0}): group '{1}' is not "
+                       "an element selection of the model.").format(
+                           c["name"], c["group"]))
+                return None
+            enri = ",\n    GROUP_MA_ENRI='{0}'".format(
+                renames.get(c["group"], c["group"]))
+        i = len(names) + 1
+        c["concept"] = "fiss_{0}".format(i)
+        names.append(c["concept"])
+        lines += [
+            "# Scheur {0}: {1}".format(c["name"], c["text"]),
+            "{0} = DEFI_FISS_XFEM(".format(c["concept"]),
+            "    MAILLAGE=mesh,",
+            "    TYPE_DISCONTINUITE='FISSURE',",
+            "    DEFI_FISS={0}{1},".format(_defi_fiss(c), enri),
+            ")",
+        ]
+        model_data["xfem"].append(c)
+    model_data["xfem_cut_nodes"] = cut_nodes
+    lines += [
+        "model = MODI_MODELE_XFEM(MODELE_IN=model_sain, FISSURE=({0},))"
+        .format(", ".join(names)), ""]
+    return (block.replace("model = AFFE_MODELE(", "model_sain = AFFE_MODELE(",
+                          1) + "\n".join(lines))
+
+
+def axis_ddl(angl, ddls, values):
+    """
+    Symmetrie/schuine voorwaarde (LIAISON_OBLIQUE met lokaal x = de
+    normaal, nautische hoeken angl) langs een globale as: (component,
+    waarde) voor DDL_IMPO, anders None. Alleen een entry met alleen 'DX'
+    (volumeknopen). Waarom: DDL_IMPO legt bij een XFEM-model ook de
+    Heaviside-vrijheidsgraden van de knopen van gesneden elementen vast
+    (beide lippen), LIAISON_OBLIQUE alleen de klassieke DX/DY/DZ; gemeten
+    forma07b (BR-11): K1 aan het symmetrievlak met LIAISON_OBLIQUE +3,8 %,
+    met DDL_IMPO gelijk aan de testcase.
+    """
+    if tuple(ddls) != ("DX",):
+        return None
+    a, b = math.radians(angl[0]), math.radians(angl[1])
+    x = (math.cos(a) * math.cos(b), math.sin(a) * math.cos(b), -math.sin(b))
+    for i, comp in enumerate(("DX", "DY", "DZ")):
+        if abs(abs(x[i]) - 1.0) < 1.0e-9:
+            sign = 1.0 if x[i] > 0.0 else -1.0
+            return comp, sign * float((values or {}).get("DX", 0.0))
+    return None
+
+
+def warn_oblique(model_data, selection, group):
+    """WARNING (een keer per selectie) als de knoopgroep van een schuine
+    voorwaarde knopen van gesneden elementen heeft: daar werkt hij bij XFEM
+    niet op de XFEM-vrijheidsgraden."""
+    nids = set((model_data.get("extra_node_groups") or {}).get(group, ()))
+    if not nids & model_data.get("xfem_cut_nodes", set()):
+        return
+    warned = model_data.setdefault("_xfem_warned_oblique", set())
+    if selection in warned:
+        return
+    warned.add(selection)
+    log(tr("WARNING: #ASTER-XFEM: de voorwaarde op '{0}' staat schuin "
+           "(LIAISON_OBLIQUE) en legt op knopen van elementen die de scheur "
+           "snijdt de XFEM-vrijheidsgraden niet vast (gemeten aan een "
+           "symmetrievlak: K +3,8 %). Laat de scheur dat vlak niet raken, "
+           "of leg het vlak langs een globale as (dan DDL_IMPO).",
+           "WARNING: #ASTER-XFEM: the constraint on '{0}' is oblique "
+           "(LIAISON_OBLIQUE) and does not fix the XFEM degrees of freedom "
+           "on nodes of elements cut by the crack (measured at a symmetry "
+           "plane: K +3.8 %). Keep the crack away from that plane, or align "
+           "the plane with a global axis (then DDL_IMPO).").format(selection))
+
+
+# ==========================================
+# .COMM: RESULTATEN NAAR HET OORSPRONKELIJKE MESH
+# ==========================================
+_RESULT_BLOCK = """
+# =====================================================
+# XFEM: resultaten op het oorspronkelijke mesh (bridge_xfem.result_block)
+# De verplaatsing van het XFEM-model heeft extra vrijheidsgraden (H1X..,
+# K1..) en is op een knoop van een gesneden element niet de fysische
+# verplaatsing. POST_MAIL_XFEM maakt een mesh dat de scheur volgt,
+# POST_CHAM_XFEM zet DEPL en SIEF_ELGA daarop; elke knoop van het
+# oorspronkelijke mesh is een knoop van dat mesh, dus PROJ_CHAMP
+# COLLOCATION geeft de waarde aan de eigen kant van de scheur. Het
+# hulpmodel krijgt alleen de volume-elsets (het mesh van POST_MAIL_XFEM houdt
+# de groepen; zijn frontcellen en randen zonder volume gaven alarm
+# MODELE1_63). REAC_NODA komt uit het XFEM-resultaat (DX, DY, DZ).
+# =====================================================
+res_xfem = res
+res_xfem = CALC_CHAMP(reuse=res_xfem, RESULTAT=res_xfem, FORCE=('REAC_NODA',))
+mesh_xvisu = POST_MAIL_XFEM(MODELE=model)
+model_xvisu = AFFE_MODELE(
+    MAILLAGE=mesh_xvisu,
+    AFFE=_F(GROUP_MA={groups}, PHENOMENE='MECANIQUE', MODELISATION='3D'),
+)
+res_xvisu = POST_CHAM_XFEM(MODELE_VISU=model_xvisu, RESULTAT=res_xfem)
+res_xvisu = CALC_CHAMP(reuse=res_xvisu, RESULTAT=res_xvisu,
+                       CONTRAINTE=('SIGM_NOEU',), CRITERES=('SIEQ_NOEU',))
+{med}res = PROJ_CHAMP(RESULTAT=res_xvisu, MODELE_1=model_xvisu,
+                 MODELE_2=model_sain, METHODE='COLLOCATION',
+                 NOM_CHAM=('DEPL', 'SIGM_NOEU', 'SIEQ_NOEU'))
+reac_xfem = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='EXTR',
+                       RESULTAT=res_xfem, NOM_CHAM='REAC_NODA', NUME_ORDRE=1)
+reac_sain = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='ASSE',
+                       MODELE=model_sain,
+                       ASSE=_F(TOUT='OUI', CHAM_GD=reac_xfem,
+                               NOM_CMP=('DX', 'DY', 'DZ')))
+res = CREA_RESU(reuse=res, RESULTAT=res, OPERATION='AFFE',
+                TYPE_RESU='EVOL_ELAS',
+                AFFE=_F(NOM_CHAM='REAC_NODA', CHAM_GD=reac_sain, INST=0.0,
+                        MODELE=model_sain))
+model = model_sain
+"""
+
+
+def active(model_data):
+    """True als model_block XFEM-scheuren heeft gezet."""
+    return bool(model_data.get("xfem"))
+
+
+def result_block(model_data):
+    """CALC_CHAMP-vervanger na MECA_STATIQUE bij XFEM (zie _RESULT_BLOCK),
+    of "" zonder XFEM."""
+    if not active(model_data):
+        return ""
+    groups = [g for g, m in model_data.get("elset_modelisations", {}).items()
+              if m == "3D"]
+    med = ""
+    if CONFIG_BRIDGE.get("med_export", False):
+        # ParaView: het mesh dat de scheur volgt (de lippen hebben eigen
+        # knopen, dus de opening is te zien) met de velden; IMPR_RESU
+        # schrijft het mesh van het resultaat mee (gemeten, BR-14)
+        med = ("# MED voor ParaView (med_export): mesh dat de scheur volgt\n"
+               "IMPR_RESU(FORMAT='MED', UNITE={0}, RESU=_F(\n"
+               "    RESULTAT=res_xvisu,\n"
+               "    NOM_CHAM=('DEPL', 'SIGM_NOEU', 'SIEQ_NOEU')))\n"
+               .format(MED_UNIT))
+    return _RESULT_BLOCK.replace("{groups}", "(" + ", ".join(
+        "'{0}'".format(g) for g in groups) + ",)").replace("{med}", med)
+
+
+def med_path(work_dir=None):
+    """Pad van het MED-bestand met het mesh dat de scheur volgt
+    (<model>_<run_id>_xfem.rmed)."""
+    return os.path.join(work_dir or work_dir_path(),
+                        run_name(MED_SUFFIX))
+
+
+def export_lines(model_data, work_dir):
+    """Regel(s) voor de .export: het MED-bestand van result_block (alleen
+    met XFEM en med_export), zoals de .rmed in
+    bridge_to_aster._export_result_lines."""
+    if not active(model_data) or not CONFIG_BRIDGE.get("med_export", False):
+        return ""
+    return "\nF rmed {0} R {1}".format(med_path(work_dir), MED_UNIT)
+
+
+# ==========================================
+# .COMM: K EN G (NA DE EXPORT)
+# ==========================================
+# CSV-schrijver in de job (Python 3 van Code-Aster). Rijen van CALC_G_XFEM
+# en POST_K1_K2_K3 worden op NUM_PT gekoppeld als de coordinaten gelijk
+# zijn (beide gebruiken de frontpunten van de scheur, of NB_POINT_FOND
+# punten).
+_CSV_COLUMNS = (
+    ("crack", None), ("front", None), ("point", "NUM_PT"),
+    ("x", "COOR_X"), ("y", "COOR_Y"), ("z", "COOR_Z"), ("s", "ABSC_CURV"),
+    ("G", "G"), ("K1", "K1"), ("K2", "K2"), ("K3", "K3"),
+    ("G_IRWIN", "G_IRWIN"), ("K1_POST_K", "K1"), ("K2_POST_K", "K2"),
+    ("K3_POST_K", "K3"), ("G_POST_K", "G"),
+)
+
+_JOB_CODE = '''
+def _bridge_xfem_fronts(fiss):
+    return max(1, len(fiss.getCrackTipMultiplicity()) // 2)
+
+
+def _bridge_xfem_csv(path, tables, columns):
+    import io
+    lines = [",".join(c[0] for c in columns)]
+    for key, front, t_g, t_pk in tables:
+        vg = t_g.EXTR_TABLE().values()
+        vpk = {}
+        if t_pk is not None:
+            vp = t_pk.EXTR_TABLE().values()
+            for i, num in enumerate(vp.get("NUM_PT", [])):
+                vpk[int(num)] = dict((k, vp[k][i]) for k in vp
+                                     if i < len(vp[k]))
+        size = max([abs(v) for c in ("COOR_X", "COOR_Y", "COOR_Z")
+                    for v in vg.get(c, []) if v is not None] + [1.0e-30])
+        for i, num in enumerate(vg.get("NUM_PT", [])):
+            pk = vpk.get(int(num), {})
+            if pk and any(abs((pk.get(c) or 0.0) - (vg[c][i] or 0.0)) >
+                          1.0e-6 * size for c in ("COOR_X", "COOR_Y",
+                                                  "COOR_Z")):
+                pk = {}
+            row = []
+            for n, (head, para) in enumerate(columns):
+                if head == "crack":
+                    v = key
+                elif head == "front":
+                    v = front
+                elif head.endswith("_POST_K"):
+                    v = pk.get(para)
+                else:
+                    v = vg.get(para, [None] * (i + 1))[i]
+                if v is None:
+                    row.append("")
+                elif isinstance(v, float):
+                    row.append("%.10g" % v)
+                else:
+                    row.append(str(v).strip())
+            lines.append(",".join(row))
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write("\\n".join(lines) + "\\n")
+    print("BRIDGE_XFEM_CSV " + path)
+'''
+
+
+def _py(text):
+    return "'{0}'".format(text.replace("\\", "\\\\").replace("'", "\\'"))
+
+
+def _r_bounds(analysis, spec):
+    """(R_INF, R_SUP) of None (automatisch: Code-Aster kiest 2h / 4h,
+    gemeten bij de bouw); per scheur r_inf/r_sup, anders de instellingen
+    fracture_r_inf/_sup. Onzinnige combinatie: ERROR en False."""
+    r_inf = spec.get("r_inf")
+    r_sup = spec.get("r_sup")
+    if r_inf is None and r_sup is None:
+        r_inf = float(analysis.get("fracture_r_inf", 0.0) or 0.0)
+        r_sup = float(analysis.get("fracture_r_sup", 0.0) or 0.0)
+    r_inf = r_inf or 0.0
+    r_sup = r_sup or 0.0
+    if r_inf == 0.0 and r_sup == 0.0:
+        return None
+    if r_inf < 0.0 or r_sup <= r_inf:
+        log(tr("ERROR: #ASTER-XFEM (scheur {0}): R_INF ({1} m) en R_SUP "
+               "({2} m): nodig 0 <= R_INF < R_SUP, of beide 0 "
+               "(automatisch).",
+               "ERROR: #ASTER-XFEM (crack {0}): R_INF ({1} m) and R_SUP "
+               "({2} m): need 0 <= R_INF < R_SUP, or both 0 "
+               "(automatic).").format(spec["name"], r_inf, r_sup))
+        return False
+    return r_inf, r_sup
+
+
+def _warn_curved(spec):
+    if spec["kind"] in _CURVED or spec.get("curved"):
+        log(tr("WARNING: #ASTER-XFEM (scheur {0}): gekromd front; K uit "
+               "CALC_G_XFEM (interactie-integraal) heeft geen "
+               "krommingscorrectie en ligt enkele procenten te hoog "
+               "(gemeten +3 tot +5 %, docs/Breukmechanica.md par. 7.4). "
+               "Gebruik K uit POST_K1_K2_K3 (kolom K1_POST_K) of G.",
+               "WARNING: #ASTER-XFEM (crack {0}): curved front; K from "
+               "CALC_G_XFEM (interaction integral) has no curvature "
+               "correction and is a few percent too high (measured +3 to "
+               "+5 %, docs/en/Fracture_mechanics.md par. 7.4). Use K from "
+               "POST_K1_K2_K3 (column K1_POST_K) or G.").format(
+                   spec["name"]))
+
+
+def k_block(model_data, analysis, work_dir):
+    """
+    .comm-code na de resultaatexport: per scheur en per front CALC_G_XFEM
+    en POST_K1_K2_K3 op res_xfem, tabellen in de .mess en de CSV
+    (csv_path). "" zonder XFEM; None bij een fout.
+    """
+    cracks = model_data.get("xfem") or []
+    if not cracks:
+        return ""
+    lines = ["", "# " + "=" * 53,
+             "# BREUKMECHANICA XFEM (bridge_xfem.k_block): K en G langs het",
+             "# front van elke #ASTER-XFEM-scheur, per front (NUME_FOND)",
+             "# " + "=" * 53, _JOB_CODE, "_bridge_xfem_tabs = []"]
+    for c in cracks:
+        bounds = _r_bounds(analysis, c)
+        if bounds is False:
+            return None
+        _warn_curved(c)
+        theta = "FISSURE={0}, NUME_FOND=_k".format(c["concept"])
+        pk = ""
+        if bounds is not None:
+            theta += ", R_INF={0}, R_SUP={1}".format(_fmt(bounds[0]),
+                                                     _fmt(bounds[1]))
+            # POST_K1_K2_K3 gebruikt dan de lipverplaatsingen tot R_SUP
+            # (zoals forma07b: ABSC_CURV_MAXI = rsup)
+            pk += ", ABSC_CURV_MAXI={0}".format(_fmt(bounds[1]))
+        if c.get("points"):
+            theta += ", NB_POINT_FOND={0}".format(c["points"])
+            pk += ", NB_POINT_FOND={0}".format(c["points"])
+        if c["smoothing"] == "LEGENDRE":
+            degree = c.get("degree")
+            if degree is None:
+                degree = int(analysis.get("fracture_legendre_degree", 5))
+            lissage = ("_F(LISSAGE_G='LEGENDRE', LISSAGE_THETA='LEGENDRE', "
+                       "DEGRE={0})".format(degree))
+        else:
+            lissage = "_F(LISSAGE_G='LAGRANGE', LISSAGE_THETA='LAGRANGE')"
+        lines += [
+            "# Scheur {0} ({1})".format(c["name"], c["kind"]),
+            "for _k in range(1, _bridge_xfem_fronts({0}) + 1):".format(
+                c["concept"]),
+            "    _tg = CALC_G_XFEM(RESULTAT=res_xfem, OPTION='CALC_K_G',",
+            "                      THETA=_F({0}),".format(theta),
+            "                      LISSAGE={0})".format(lissage),
+            "    IMPR_TABLE(TABLE=_tg, UNITE=6)",
+            "    # POST_K1_K2_K3 (extrapolatie van de sprong in de",
+            "    # verplaatsing over de lippen) als controle; een fout hier",
+            "    # stopt de tabel van CALC_G_XFEM niet",
+            "    try:",
+            "        _tp = POST_K1_K2_K3(RESULTAT=res_xfem, FISSURE={0}, "
+            "NUME_FOND=_k{1})".format(c["concept"], pk),
+            "        IMPR_TABLE(TABLE=_tp, UNITE=6)",
+            "    except Exception as _e:",
+            "        _tp = None",
+            "        print('BRIDGE_XFEM_POSTK_FOUT {0}/' + str(_k) + ' ' + "
+            "str(_e).replace(chr(10), ' ')[:300])".format(c["name"]),
+            "    _bridge_xfem_tabs.append(({0}, _k, _tg, _tp))".format(
+                _py(c["name"])),
+        ]
+    lines.append("_bridge_xfem_csv({0}, _bridge_xfem_tabs, {1!r})".format(
+        _py(csv_path(work_dir)), [list(c) for c in _CSV_COLUMNS]))
+    return "\n".join(lines) + "\n"
+
+
+def csv_path(work_dir=None):
+    """Pad van de tabel van deze run (<model>_<run_id>_xfem.csv)."""
+    return os.path.join(work_dir or work_dir_path(),
+                        run_name(CSV_SUFFIX))
+
+
+# ==========================================
+# NA DE RUN: TABEL LEZEN EN MELDEN
+# ==========================================
+_DIFF_WARN = 0.05
+
+
+def report(work_dir=None, mess_path=None):
+    """
+    Samenvatting van de XFEM-tabel van deze run voor de log en het
+    statusvak (lijst teksten; leeg zonder XFEM). WARNING's bij negatieve
+    K_I, ontbrekende POST_K1_K2_K3 en een groot verschil tussen K uit
+    CALC_G_XFEM en uit POST_K1_K2_K3. In de tekst MPa.m^0,5 en J/m2.
+    """
+    import bridge_fracture as bf
+    path = csv_path(work_dir)
+    rows = bf.read_csv(path)
+    if not rows:
+        return []
+    errors = {}
+    if mess_path and os.path.isfile(mess_path):
+        with io.open(mess_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("BRIDGE_XFEM_POSTK_FOUT"):
+                    parts = line.split(None, 2)
+                    errors[parts[1] if len(parts) > 1 else "?"] = (
+                        parts[2].strip() if len(parts) > 2 else "")
+    keys = []
+    for r in rows:
+        k = r.get("crack")
+        k = "%g" % k if isinstance(k, float) else str(k or "")
+        f = r.get("front")
+        f = "%g" % f if isinstance(f, float) else str(f or "1")
+        r["crack"], r["front"] = k, f
+        if (k, f) not in keys:
+            keys.append((k, f))
+    out = []
+    for key, front in keys:
+        sub = [r for r in rows if r["crack"] == key and r["front"] == front]
+        label = key if front == "1" and sum(
+            1 for kk in keys if kk[0] == key) == 1 else key + "/" + front
+        line = tr(u"Breukmechanica XFEM, scheur {0}: {1} punten langs het "
+                  u"front. K_I {2} MPa.m^0,5 (CALC_G_XFEM), {3} MPa.m^0,5 "
+                  u"(POST_K1_K2_K3); G {4} J/m2. K_II tot {5}, K_III tot {6} "
+                  u"MPa.m^0,5. Tabel: {7}",
+                  u"Fracture mechanics XFEM, crack {0}: {1} points along the "
+                  u"front. K_I {2} MPa.m^0.5 (CALC_G_XFEM), {3} MPa.m^0.5 "
+                  u"(POST_K1_K2_K3); G {4} J/m2. K_II up to {5}, K_III up "
+                  u"to {6} MPa.m^0.5. Table: {7}").format(
+                      label, len(sub), bf._fmt_range(bf._range(sub, "K1",
+                                                               1.0e6)),
+                      bf._fmt_range(bf._range(sub, "K1_POST_K", 1.0e6)),
+                      bf._fmt_range(bf._range(sub, "G")),
+                      bf._fmt_abs(sub, "K2"), bf._fmt_abs(sub, "K3"),
+                      os.path.basename(path))
+        log(u"INFO: " + line)
+        out.append(line)
+        for text in _warnings(sub, label, errors.get(key + "/" + front)):
+            log(text)
+            out.append(text[len("WARNING: "):])
+    return out
+
+
+def _warnings(rows, label, postk_error):
+    out = []
+    k1 = [r["K1"] for r in rows if isinstance(r.get("K1"), float)]
+    if k1 and min(k1) < 0.0:
+        out.append(tr(u"WARNING: Breukmechanica XFEM, scheur {0}: K_I is "
+                      u"negatief op {1} van {2} punten: de lippen gaan daar "
+                      u"over elkaar (druk op de scheur; zonder contact op "
+                      u"de lippen is de waarde fysisch zinloos). Controleer "
+                      u"de belasting.",
+                      u"WARNING: Fracture mechanics XFEM, crack {0}: K_I is "
+                      u"negative at {1} of {2} points: the lips overlap "
+                      u"there (compression on the crack; without contact on "
+                      u"the lips the value is physically meaningless). Check "
+                      u"the load.").format(
+                          label, sum(1 for v in k1 if v < 0.0), len(k1)))
+    if postk_error is not None or all(r.get("K1_POST_K") is None
+                                      for r in rows):
+        out.append(tr(u"WARNING: Breukmechanica XFEM, scheur {0}: "
+                      u"POST_K1_K2_K3 gaf geen waarden ({1}); alleen "
+                      u"CALC_G_XFEM.",
+                      u"WARNING: Fracture mechanics XFEM, crack {0}: "
+                      u"POST_K1_K2_K3 gave no values ({1}); CALC_G_XFEM "
+                      u"only.").format(label, postk_error or "-"))
+    pairs = [(r["K1"], r["K1_POST_K"]) for r in rows
+             if isinstance(r.get("K1"), float) and
+             isinstance(r.get("K1_POST_K"), float)]
+    ref = max([abs(b) for _a, b in pairs] + [0.0])
+    if pairs and ref > 0.0:
+        # Alleen binnenpunten: aan een vrij oppervlak of een
+        # symmetrievlak verschillen de methoden altijd
+        inner = pairs[1:-1] if len(pairs) > 2 else pairs
+        diff = max(abs(a - b) for a, b in inner) / ref
+        if diff > _DIFF_WARN:
+            out.append(tr(u"WARNING: Breukmechanica XFEM, scheur {0}: K_I uit "
+                          u"CALC_G_XFEM en uit POST_K1_K2_K3 verschillen tot "
+                          u"{1}% (binnen het front). Bij een gekromd front is "
+                          u"dat de ontbrekende krommingscorrectie (gebruik "
+                          u"POST_K1_K2_K3); anders: verfijn het mesh rond "
+                          u"het front, controleer R_INF/R_SUP en glad/graad "
+                          u"(docs/Breukmechanica.md par. 7).",
+                          u"WARNING: Fracture mechanics XFEM, crack {0}: K_I "
+                          u"from CALC_G_XFEM and from POST_K1_K2_K3 differ by "
+                          u"up to {1}% (inside the front). For a curved "
+                          u"front this is the missing curvature correction "
+                          u"(use POST_K1_K2_K3); otherwise: refine the mesh "
+                          u"around the front, check R_INF/R_SUP and "
+                          u"smoothing/degree (docs/en/Fracture_mechanics.md "
+                          u"par. 7).").format(label, "%.1f" % (100.0 * diff)))
+    return out

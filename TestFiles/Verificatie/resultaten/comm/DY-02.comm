@@ -1,0 +1,534 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor DYNA_NON_LINE (niet-lineaire dynamica, impliciet HHT/NEWMARK
+# of expliciet DIFF_CENT/TCHAMWA; keuze "schema" in CONFIG_BRIDGE).
+# Invulling via Python str.format() vanuit bridge_to_aster.py
+# (_build_nonlin_static; zelfde builder en placeholders als STAT_NON_LINE).
+#
+# Placeholders (zie AsterTemplate_StatNonLine.comm voor de gedeelde):
+#   listinst_block    -> outlist (uitvoertijden uit Mecway <timesteps>),
+#                        listinst (impliciet: DEFI_LIST_INST met automatisch
+#                        knippen; expliciet: per uitvoerinterval een gelijke
+#                        stap onder de geschatte CFL-grens, zodat elke
+#                        uitvoertijd een rekenstap is)
+#                        en vite0 (beginsnelheid, CREA_CHAMP) als die er is
+#   statnonline_block -> DEFI_CONTACT (als er contact2 is) en de
+#                        DYNA_NON_LINE-aanroep met SCHEMA_TEMPS, ETAT_INIT
+#                        en ARCHIVAGE op de uitvoertijden, of de bezwijklus
+#                        (bridge_failure.build_solve_block)
+#   postreleve_block  -> route 'tabel': POST_RELEVE_T over alle
+#                        gearchiveerde tijdstippen (TOUT_ORDRE), inclusief
+#                        snelheid (VITE); route 'liml': aster_results_export
+#
+# LETOP accolades: een letterlijke accolade schrijf je als { of }.
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH INLEZEN
+# FORMAT='ASTER': mesh rechtstreeks uit de .liml (bridge_mesh.py)
+# UNITE=20 komt overeen met 'F mail ... D 20' in study.export
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+# =====================================================
+# 2. STANDAARD GROEPEN AANMAKEN (alle elementen / knopen)
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+# =====================================================
+# 2b. KNOOPGROEPEN VOOR RANDVOORWAARDEN (en mesh-aanpassingen)
+# Gegenereerd door _build_defigroup_block(), zelfde als MECA_STATIQUE.
+# =====================================================
+#-- not used in this analysis --
+
+
+# =====================================================
+# 3. MODEL DEFINITIE
+# Per elset wordt de bijbehorende MODELISATION gekozen:
+#   1D (line2)              -> POU_D_E   (Euler-balk; alleen SEG2)
+#   2D lineair (tri3/quad4)       -> DKT
+#   2D kwadratisch (tri6/quad8)   -> COQUE_3D (na CREA_MAILLAGE MODI_MAILLE)
+#   veren (1D met veer-materiaal) -> DIS_T
+#   vlakken met druk (op volume)  -> 3D (randelementen)
+#   losse knopen (POI1)           -> DIS_T / DIS_TR (zie bridge_mesh.py)
+#   3D (hex/tet/wedge/...)  -> 3D
+# Zonder elsets, drukvlakken en POI1-knopen wordt TOUT='OUI',
+# MODELISATION='3D' gebruikt.
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Balk', PHENOMENE='MECANIQUE', MODELISATION='POU_D_E'),
+    ),
+)
+
+
+# =====================================================
+# 3b. SECTIE-EIGENSCHAPPEN (balken, schalen, veren)
+# =====================================================
+cara = AFFE_CARA_ELEM(
+    MODELE=model,
+    POUTRE=_F(GROUP_MA='Balk',
+           SECTION='CERCLE',
+           CARA=('R',),
+           VALE=(0.01,)),
+)
+
+
+# =====================================================
+# 3c. PLASTISCHE HARDINGSCURVES  (DEFI_FONCTION)
+# Per materiaal met <plastic>-blok in Mecway wordt een tractiefunctie
+# gedefinieerd. Code-Aster TRACTION / VMIS_ISOT_TRAC (U4.43.01 par. 5.1.1):
+#   - NOM_PARA='EPSI' : TOTALE rek
+#   - NOM_RESU='SIGM' : spanning
+#   - De ordinaat van het eerste punt is de elastische grens; een punt
+#     met abscis nul is NIET toegestaan. Het eerste punt is dus
+#     (sigma_y / E, sigma_y).
+#
+# De omrekening vanuit Mecway gebeurt in bridge_to_aster.py
+# (_to_aster_traction_curve), gestuurd door 'plastic_strain_definition'
+# in CONFIG_BRIDGE: 'plastic' -> EPSI = eps_p + sigma/E,
+# 'total' -> beginpunt (0, 0) vervalt, 'auto' -> afgeleid uit het
+# eerste punt. Ongeldige curves stoppen de generatie met een ERROR in
+# bridge_log.txt.
+# =====================================================
+#-- geen plastische curves in dit model --
+
+
+# =====================================================
+# 4. MATERIAAL-DEFINITIE
+# DEFI_MATERIAU met ELAS (altijd) en TRACTION (alleen bij plastische
+# materialen). RHO wordt altijd opgenomen voor PESANTEUR-compatibiliteit.
+# =====================================================
+# materiaal 'Rond20'
+MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=7850.0),)
+
+
+# =====================================================
+# 5. MATERIAAL-TOEWIJZING
+# =====================================================
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Balk', MATER=MAT_1),
+    ),
+)
+
+
+# =====================================================
+# 6a. TIJDSAFHANKELIJKE BELASTINGS-FUNCTIES  (DEFI_FONCTION)
+# Per <force>-component met time-attribuut wordt een functie van INST
+# gedefinieerd. Extrapolatie buiten het gedefinieerde tijdsdomein is
+# constant aan beide zijden.
+# =====================================================
+#-- geen tijdsafhankelijke belastingen in dit model --
+
+
+# =====================================================
+# 6b. TIJDSDISCRETISATIE EN BEGINSNELHEID
+# outlist: uitvoertijden (Mecway <timesteps>); listinst: rekenstappen
+# (zie de kop van dit bestand); vite0: beginsnelheid.
+# =====================================================
+outlist = DEFI_LIST_REEL(
+    VALE=(0.0017275248422, 0.0034550496844, 0.00518257452661, 0.00691009936881, 0.00863762421101, 0.0103651490532, 0.0120926738954, 0.0138201987376, 0.0155477235798, 0.017275248422, 0.0190027732642, 0.0207302981064, 0.0224578229486, 0.0241853477908, 0.025912872633, 0.0276403974752, 0.0293679223174, 0.0310954471596, 0.0328229720018, 0.034550496844, 0.0362780216862, 0.0380055465284, 0.0397330713706, 0.0414605962128, 0.043188121055, 0.0449156458972, 0.0466431707395, 0.0483706955817, 0.0500982204239, 0.0518257452661, 0.0535532701083, 0.0552807949505, 0.0570083197927, 0.0587358446349, 0.0604633694771, 0.0621908943193, 0.0639184191615, 0.0656459440037, 0.0673734688459, 0.0691009936881, 0.0708285185303, 0.0725560433725, 0.0742835682147, 0.0760110930569, 0.0777386178991, 0.0794661427413, 0.0811936675835, 0.0829211924257, 0.0846487172679, 0.0863762421101, 0.0881037669523, 0.0898312917945, 0.0915588166367, 0.0932863414789, 0.0950138663211, 0.0967413911633, 0.0984689160055, 0.100196440848, 0.10192396569, 0.103651490532, 0.105379015374, 0.107106540217, 0.108834065059, 0.110561589901, 0.112289114743, 0.114016639585, 0.115744164428, 0.11747168927, 0.119199214112, 0.120926738954, 0.122654263796, 0.124381788639, 0.126109313481, 0.127836838323, 0.129564363165, 0.131291888007, 0.13301941285, 0.134746937692, 0.136474462534, 0.138201987376, 0.139929512218, 0.141657037061, 0.143384561903, 0.145112086745, 0.146839611587, 0.148567136429, 0.150294661272, 0.152022186114, 0.153749710956, 0.155477235798, 0.15720476064, 0.158932285483, 0.160659810325, 0.162387335167, 0.164114860009, 0.165842384851, 0.167569909694, 0.169297434536, 0.171024959378, 0.17275248422, 0.174480009062, 0.176207533905, 0.177935058747, 0.179662583589, 0.181390108431, 0.183117633273, 0.184845158116, 0.186572682958, 0.1883002078, 0.190027732642, 0.191755257484, 0.193482782327, 0.195210307169, 0.196937832011, 0.198665356853, 0.200392881695, 0.202120406538, 0.20384793138, 0.205575456222, 0.207302981064, 0.209030505906, 0.210758030749, 0.212485555591, 0.214213080433, 0.215940605275, 0.217668130117, 0.21939565496, 0.221123179802, 0.222850704644, 0.224578229486, 0.226305754328, 0.228033279171, 0.229760804013, 0.231488328855, 0.233215853697, 0.234943378539, 0.236670903382, 0.238398428224, 0.240125953066, 0.241853477908, 0.24358100275, 0.245308527593, 0.247036052435, 0.248763577277, 0.250491102119, 0.252218626961, 0.253946151804, 0.255673676646, 0.257401201488, 0.25912872633, 0.260856251172, 0.262583776015, 0.264311300857, 0.266038825699, 0.267766350541, 0.269493875383, 0.271221400226, 0.272948925068, 0.27467644991, 0.276403974752, 0.278131499595, 0.279859024437, 0.281586549279, 0.283314074121, 0.285041598963, 0.286769123806, 0.288496648648, 0.29022417349, 0.291951698332, 0.293679223174, 0.295406748017, 0.297134272859, 0.298861797701, 0.300589322543, 0.302316847385, 0.304044372228, 0.30577189707, 0.307499421912, 0.309226946754, 0.310954471596, 0.312681996439, 0.314409521281, 0.316137046123, 0.317864570965, 0.319592095807, 0.32131962065, 0.323047145492, 0.324774670334, 0.326502195176, 0.328229720018, 0.329957244861, 0.331684769703, 0.333412294545, 0.335139819387, 0.336867344229, 0.338594869072, 0.340322393914, 0.342049918756, 0.343777443598, 0.34550496844, 0.347232493283, 0.348960018125, 0.350687542967, 0.352415067809, 0.354142592651, 0.355870117494, 0.357597642336, 0.359325167178, 0.36105269202, 0.362780216862, 0.364507741705, 0.366235266547, 0.367962791389, 0.369690316231, 0.371417841073, 0.373145365916, 0.374872890758, 0.3766004156, 0.378327940442, 0.380055465284, 0.381782990127, 0.383510514969, 0.385238039811, 0.386965564653, 0.388693089495, 0.390420614338, 0.39214813918, 0.393875664022, 0.395603188864, 0.397330713706, 0.399058238549, 0.400785763391, 0.402513288233, 0.404240813075, 0.405968337917, 0.40769586276, 0.409423387602, 0.411150912444, 0.412878437286, 0.4146059621284518),
+)
+
+times = DEFI_LIST_REEL(
+    DEBUT=0.0,
+    INTERVALLE=(
+        _F(JUSQU_A=0.0017275248422, NOMBRE=1),
+        _F(JUSQU_A=0.0034550496844, NOMBRE=1),
+        _F(JUSQU_A=0.00518257452661, NOMBRE=1),
+        _F(JUSQU_A=0.00691009936881, NOMBRE=1),
+        _F(JUSQU_A=0.00863762421101, NOMBRE=1),
+        _F(JUSQU_A=0.0103651490532, NOMBRE=1),
+        _F(JUSQU_A=0.0120926738954, NOMBRE=1),
+        _F(JUSQU_A=0.0138201987376, NOMBRE=1),
+        _F(JUSQU_A=0.0155477235798, NOMBRE=1),
+        _F(JUSQU_A=0.017275248422, NOMBRE=1),
+        _F(JUSQU_A=0.0190027732642, NOMBRE=1),
+        _F(JUSQU_A=0.0207302981064, NOMBRE=1),
+        _F(JUSQU_A=0.0224578229486, NOMBRE=1),
+        _F(JUSQU_A=0.0241853477908, NOMBRE=1),
+        _F(JUSQU_A=0.025912872633, NOMBRE=1),
+        _F(JUSQU_A=0.0276403974752, NOMBRE=1),
+        _F(JUSQU_A=0.0293679223174, NOMBRE=1),
+        _F(JUSQU_A=0.0310954471596, NOMBRE=1),
+        _F(JUSQU_A=0.0328229720018, NOMBRE=1),
+        _F(JUSQU_A=0.034550496844, NOMBRE=1),
+        _F(JUSQU_A=0.0362780216862, NOMBRE=1),
+        _F(JUSQU_A=0.0380055465284, NOMBRE=1),
+        _F(JUSQU_A=0.0397330713706, NOMBRE=1),
+        _F(JUSQU_A=0.0414605962128, NOMBRE=1),
+        _F(JUSQU_A=0.043188121055, NOMBRE=1),
+        _F(JUSQU_A=0.0449156458972, NOMBRE=1),
+        _F(JUSQU_A=0.0466431707395, NOMBRE=1),
+        _F(JUSQU_A=0.0483706955817, NOMBRE=1),
+        _F(JUSQU_A=0.0500982204239, NOMBRE=1),
+        _F(JUSQU_A=0.0518257452661, NOMBRE=1),
+        _F(JUSQU_A=0.0535532701083, NOMBRE=1),
+        _F(JUSQU_A=0.0552807949505, NOMBRE=1),
+        _F(JUSQU_A=0.0570083197927, NOMBRE=1),
+        _F(JUSQU_A=0.0587358446349, NOMBRE=1),
+        _F(JUSQU_A=0.0604633694771, NOMBRE=1),
+        _F(JUSQU_A=0.0621908943193, NOMBRE=1),
+        _F(JUSQU_A=0.0639184191615, NOMBRE=1),
+        _F(JUSQU_A=0.0656459440037, NOMBRE=1),
+        _F(JUSQU_A=0.0673734688459, NOMBRE=1),
+        _F(JUSQU_A=0.0691009936881, NOMBRE=1),
+        _F(JUSQU_A=0.0708285185303, NOMBRE=1),
+        _F(JUSQU_A=0.0725560433725, NOMBRE=1),
+        _F(JUSQU_A=0.0742835682147, NOMBRE=1),
+        _F(JUSQU_A=0.0760110930569, NOMBRE=1),
+        _F(JUSQU_A=0.0777386178991, NOMBRE=1),
+        _F(JUSQU_A=0.0794661427413, NOMBRE=1),
+        _F(JUSQU_A=0.0811936675835, NOMBRE=1),
+        _F(JUSQU_A=0.0829211924257, NOMBRE=1),
+        _F(JUSQU_A=0.0846487172679, NOMBRE=1),
+        _F(JUSQU_A=0.0863762421101, NOMBRE=1),
+        _F(JUSQU_A=0.0881037669523, NOMBRE=1),
+        _F(JUSQU_A=0.0898312917945, NOMBRE=1),
+        _F(JUSQU_A=0.0915588166367, NOMBRE=1),
+        _F(JUSQU_A=0.0932863414789, NOMBRE=1),
+        _F(JUSQU_A=0.0950138663211, NOMBRE=1),
+        _F(JUSQU_A=0.0967413911633, NOMBRE=1),
+        _F(JUSQU_A=0.0984689160055, NOMBRE=1),
+        _F(JUSQU_A=0.100196440848, NOMBRE=1),
+        _F(JUSQU_A=0.10192396569, NOMBRE=1),
+        _F(JUSQU_A=0.103651490532, NOMBRE=1),
+        _F(JUSQU_A=0.105379015374, NOMBRE=1),
+        _F(JUSQU_A=0.107106540217, NOMBRE=1),
+        _F(JUSQU_A=0.108834065059, NOMBRE=1),
+        _F(JUSQU_A=0.110561589901, NOMBRE=1),
+        _F(JUSQU_A=0.112289114743, NOMBRE=1),
+        _F(JUSQU_A=0.114016639585, NOMBRE=1),
+        _F(JUSQU_A=0.115744164428, NOMBRE=1),
+        _F(JUSQU_A=0.11747168927, NOMBRE=1),
+        _F(JUSQU_A=0.119199214112, NOMBRE=1),
+        _F(JUSQU_A=0.120926738954, NOMBRE=1),
+        _F(JUSQU_A=0.122654263796, NOMBRE=1),
+        _F(JUSQU_A=0.124381788639, NOMBRE=1),
+        _F(JUSQU_A=0.126109313481, NOMBRE=1),
+        _F(JUSQU_A=0.127836838323, NOMBRE=1),
+        _F(JUSQU_A=0.129564363165, NOMBRE=1),
+        _F(JUSQU_A=0.131291888007, NOMBRE=1),
+        _F(JUSQU_A=0.13301941285, NOMBRE=1),
+        _F(JUSQU_A=0.134746937692, NOMBRE=1),
+        _F(JUSQU_A=0.136474462534, NOMBRE=1),
+        _F(JUSQU_A=0.138201987376, NOMBRE=1),
+        _F(JUSQU_A=0.139929512218, NOMBRE=1),
+        _F(JUSQU_A=0.141657037061, NOMBRE=1),
+        _F(JUSQU_A=0.143384561903, NOMBRE=1),
+        _F(JUSQU_A=0.145112086745, NOMBRE=1),
+        _F(JUSQU_A=0.146839611587, NOMBRE=1),
+        _F(JUSQU_A=0.148567136429, NOMBRE=1),
+        _F(JUSQU_A=0.150294661272, NOMBRE=1),
+        _F(JUSQU_A=0.152022186114, NOMBRE=1),
+        _F(JUSQU_A=0.153749710956, NOMBRE=1),
+        _F(JUSQU_A=0.155477235798, NOMBRE=1),
+        _F(JUSQU_A=0.15720476064, NOMBRE=1),
+        _F(JUSQU_A=0.158932285483, NOMBRE=1),
+        _F(JUSQU_A=0.160659810325, NOMBRE=1),
+        _F(JUSQU_A=0.162387335167, NOMBRE=1),
+        _F(JUSQU_A=0.164114860009, NOMBRE=1),
+        _F(JUSQU_A=0.165842384851, NOMBRE=1),
+        _F(JUSQU_A=0.167569909694, NOMBRE=1),
+        _F(JUSQU_A=0.169297434536, NOMBRE=1),
+        _F(JUSQU_A=0.171024959378, NOMBRE=1),
+        _F(JUSQU_A=0.17275248422, NOMBRE=1),
+        _F(JUSQU_A=0.174480009062, NOMBRE=1),
+        _F(JUSQU_A=0.176207533905, NOMBRE=1),
+        _F(JUSQU_A=0.177935058747, NOMBRE=1),
+        _F(JUSQU_A=0.179662583589, NOMBRE=1),
+        _F(JUSQU_A=0.181390108431, NOMBRE=1),
+        _F(JUSQU_A=0.183117633273, NOMBRE=1),
+        _F(JUSQU_A=0.184845158116, NOMBRE=1),
+        _F(JUSQU_A=0.186572682958, NOMBRE=1),
+        _F(JUSQU_A=0.1883002078, NOMBRE=1),
+        _F(JUSQU_A=0.190027732642, NOMBRE=1),
+        _F(JUSQU_A=0.191755257484, NOMBRE=1),
+        _F(JUSQU_A=0.193482782327, NOMBRE=1),
+        _F(JUSQU_A=0.195210307169, NOMBRE=1),
+        _F(JUSQU_A=0.196937832011, NOMBRE=1),
+        _F(JUSQU_A=0.198665356853, NOMBRE=1),
+        _F(JUSQU_A=0.200392881695, NOMBRE=1),
+        _F(JUSQU_A=0.202120406538, NOMBRE=1),
+        _F(JUSQU_A=0.20384793138, NOMBRE=1),
+        _F(JUSQU_A=0.205575456222, NOMBRE=1),
+        _F(JUSQU_A=0.207302981064, NOMBRE=1),
+        _F(JUSQU_A=0.209030505906, NOMBRE=1),
+        _F(JUSQU_A=0.210758030749, NOMBRE=1),
+        _F(JUSQU_A=0.212485555591, NOMBRE=1),
+        _F(JUSQU_A=0.214213080433, NOMBRE=1),
+        _F(JUSQU_A=0.215940605275, NOMBRE=1),
+        _F(JUSQU_A=0.217668130117, NOMBRE=1),
+        _F(JUSQU_A=0.21939565496, NOMBRE=1),
+        _F(JUSQU_A=0.221123179802, NOMBRE=1),
+        _F(JUSQU_A=0.222850704644, NOMBRE=1),
+        _F(JUSQU_A=0.224578229486, NOMBRE=1),
+        _F(JUSQU_A=0.226305754328, NOMBRE=1),
+        _F(JUSQU_A=0.228033279171, NOMBRE=1),
+        _F(JUSQU_A=0.229760804013, NOMBRE=1),
+        _F(JUSQU_A=0.231488328855, NOMBRE=1),
+        _F(JUSQU_A=0.233215853697, NOMBRE=1),
+        _F(JUSQU_A=0.234943378539, NOMBRE=1),
+        _F(JUSQU_A=0.236670903382, NOMBRE=1),
+        _F(JUSQU_A=0.238398428224, NOMBRE=1),
+        _F(JUSQU_A=0.240125953066, NOMBRE=1),
+        _F(JUSQU_A=0.241853477908, NOMBRE=1),
+        _F(JUSQU_A=0.24358100275, NOMBRE=1),
+        _F(JUSQU_A=0.245308527593, NOMBRE=1),
+        _F(JUSQU_A=0.247036052435, NOMBRE=1),
+        _F(JUSQU_A=0.248763577277, NOMBRE=1),
+        _F(JUSQU_A=0.250491102119, NOMBRE=1),
+        _F(JUSQU_A=0.252218626961, NOMBRE=1),
+        _F(JUSQU_A=0.253946151804, NOMBRE=1),
+        _F(JUSQU_A=0.255673676646, NOMBRE=1),
+        _F(JUSQU_A=0.257401201488, NOMBRE=1),
+        _F(JUSQU_A=0.25912872633, NOMBRE=1),
+        _F(JUSQU_A=0.260856251172, NOMBRE=1),
+        _F(JUSQU_A=0.262583776015, NOMBRE=1),
+        _F(JUSQU_A=0.264311300857, NOMBRE=1),
+        _F(JUSQU_A=0.266038825699, NOMBRE=1),
+        _F(JUSQU_A=0.267766350541, NOMBRE=1),
+        _F(JUSQU_A=0.269493875383, NOMBRE=1),
+        _F(JUSQU_A=0.271221400226, NOMBRE=1),
+        _F(JUSQU_A=0.272948925068, NOMBRE=1),
+        _F(JUSQU_A=0.27467644991, NOMBRE=1),
+        _F(JUSQU_A=0.276403974752, NOMBRE=1),
+        _F(JUSQU_A=0.278131499595, NOMBRE=1),
+        _F(JUSQU_A=0.279859024437, NOMBRE=1),
+        _F(JUSQU_A=0.281586549279, NOMBRE=1),
+        _F(JUSQU_A=0.283314074121, NOMBRE=1),
+        _F(JUSQU_A=0.285041598963, NOMBRE=1),
+        _F(JUSQU_A=0.286769123806, NOMBRE=1),
+        _F(JUSQU_A=0.288496648648, NOMBRE=1),
+        _F(JUSQU_A=0.29022417349, NOMBRE=1),
+        _F(JUSQU_A=0.291951698332, NOMBRE=1),
+        _F(JUSQU_A=0.293679223174, NOMBRE=1),
+        _F(JUSQU_A=0.295406748017, NOMBRE=1),
+        _F(JUSQU_A=0.297134272859, NOMBRE=1),
+        _F(JUSQU_A=0.298861797701, NOMBRE=1),
+        _F(JUSQU_A=0.300589322543, NOMBRE=1),
+        _F(JUSQU_A=0.302316847385, NOMBRE=1),
+        _F(JUSQU_A=0.304044372228, NOMBRE=1),
+        _F(JUSQU_A=0.30577189707, NOMBRE=1),
+        _F(JUSQU_A=0.307499421912, NOMBRE=1),
+        _F(JUSQU_A=0.309226946754, NOMBRE=1),
+        _F(JUSQU_A=0.310954471596, NOMBRE=1),
+        _F(JUSQU_A=0.312681996439, NOMBRE=1),
+        _F(JUSQU_A=0.314409521281, NOMBRE=1),
+        _F(JUSQU_A=0.316137046123, NOMBRE=1),
+        _F(JUSQU_A=0.317864570965, NOMBRE=1),
+        _F(JUSQU_A=0.319592095807, NOMBRE=1),
+        _F(JUSQU_A=0.32131962065, NOMBRE=1),
+        _F(JUSQU_A=0.323047145492, NOMBRE=1),
+        _F(JUSQU_A=0.324774670334, NOMBRE=1),
+        _F(JUSQU_A=0.326502195176, NOMBRE=1),
+        _F(JUSQU_A=0.328229720018, NOMBRE=1),
+        _F(JUSQU_A=0.329957244861, NOMBRE=1),
+        _F(JUSQU_A=0.331684769703, NOMBRE=1),
+        _F(JUSQU_A=0.333412294545, NOMBRE=1),
+        _F(JUSQU_A=0.335139819387, NOMBRE=1),
+        _F(JUSQU_A=0.336867344229, NOMBRE=1),
+        _F(JUSQU_A=0.338594869072, NOMBRE=1),
+        _F(JUSQU_A=0.340322393914, NOMBRE=1),
+        _F(JUSQU_A=0.342049918756, NOMBRE=1),
+        _F(JUSQU_A=0.343777443598, NOMBRE=1),
+        _F(JUSQU_A=0.34550496844, NOMBRE=1),
+        _F(JUSQU_A=0.347232493283, NOMBRE=1),
+        _F(JUSQU_A=0.348960018125, NOMBRE=1),
+        _F(JUSQU_A=0.350687542967, NOMBRE=1),
+        _F(JUSQU_A=0.352415067809, NOMBRE=1),
+        _F(JUSQU_A=0.354142592651, NOMBRE=1),
+        _F(JUSQU_A=0.355870117494, NOMBRE=1),
+        _F(JUSQU_A=0.357597642336, NOMBRE=1),
+        _F(JUSQU_A=0.359325167178, NOMBRE=1),
+        _F(JUSQU_A=0.36105269202, NOMBRE=1),
+        _F(JUSQU_A=0.362780216862, NOMBRE=1),
+        _F(JUSQU_A=0.364507741705, NOMBRE=1),
+        _F(JUSQU_A=0.366235266547, NOMBRE=1),
+        _F(JUSQU_A=0.367962791389, NOMBRE=1),
+        _F(JUSQU_A=0.369690316231, NOMBRE=1),
+        _F(JUSQU_A=0.371417841073, NOMBRE=1),
+        _F(JUSQU_A=0.373145365916, NOMBRE=1),
+        _F(JUSQU_A=0.374872890758, NOMBRE=1),
+        _F(JUSQU_A=0.3766004156, NOMBRE=1),
+        _F(JUSQU_A=0.378327940442, NOMBRE=1),
+        _F(JUSQU_A=0.380055465284, NOMBRE=1),
+        _F(JUSQU_A=0.381782990127, NOMBRE=1),
+        _F(JUSQU_A=0.383510514969, NOMBRE=1),
+        _F(JUSQU_A=0.385238039811, NOMBRE=1),
+        _F(JUSQU_A=0.386965564653, NOMBRE=1),
+        _F(JUSQU_A=0.388693089495, NOMBRE=1),
+        _F(JUSQU_A=0.390420614338, NOMBRE=1),
+        _F(JUSQU_A=0.39214813918, NOMBRE=1),
+        _F(JUSQU_A=0.393875664022, NOMBRE=1),
+        _F(JUSQU_A=0.395603188864, NOMBRE=1),
+        _F(JUSQU_A=0.397330713706, NOMBRE=1),
+        _F(JUSQU_A=0.399058238549, NOMBRE=1),
+        _F(JUSQU_A=0.400785763391, NOMBRE=1),
+        _F(JUSQU_A=0.402513288233, NOMBRE=1),
+        _F(JUSQU_A=0.404240813075, NOMBRE=1),
+        _F(JUSQU_A=0.405968337917, NOMBRE=1),
+        _F(JUSQU_A=0.40769586276, NOMBRE=1),
+        _F(JUSQU_A=0.409423387602, NOMBRE=1),
+        _F(JUSQU_A=0.411150912444, NOMBRE=1),
+        _F(JUSQU_A=0.412878437286, NOMBRE=1),
+        _F(JUSQU_A=0.4146059621284518, NOMBRE=1),
+    ),
+)
+
+listinst = DEFI_LIST_INST(
+    DEFI_LIST=_F(LIST_INST=times),
+    ECHEC=_F(EVENEMENT='ERREUR', ACTION='DECOUPE',
+             SUBD_METHODE='MANUEL', SUBD_PAS=4,
+             SUBD_NIVEAU=6),
+)
+
+
+
+# =====================================================
+# 7. RANDVOORWAARDEN EN BELASTINGEN  (AFFE_CHAR_MECA / _F)
+# load_1: randvoorwaarden (DDL_IMPO, LIAISON_*) en couplings; daarna een
+# last per belasting (FORCE_*, PRES_REP, PESANTEUR), omdat Code-Aster
+# belastingen binnen een last overschrijft i.p.v. optelt. Componenten met
+# een tijdshistorie verwijzen naar de DEFI_FONCTION's uit stap 6a
+# (AFFE_CHAR_MECA_F, of FONC_MULT in EXCIT voor een moment op vlakken).
+# =====================================================
+load_1 = AFFE_CHAR_MECA(
+    MODELE=model,
+    DDL_IMPO=_F(GROUP_NO='Inklemming', BLOCAGE=('DEPLACEMENT', 'ROTATION')),
+)
+
+load_2 = AFFE_CHAR_MECA(
+    MODELE=model,
+    FORCE_NODALE=_F(GROUP_NO='Tip', FZ=-10.0),
+)
+
+
+# =====================================================
+# 8. SOLVER: NIET-LINEAIRE DYNAMICA  (DYNA_NON_LINE)
+# Impliciet (HHT/NEWMARK): Newton-Raphson per tijdstap; expliciet
+# (DIFF_CENT/TCHAMWA): diagonale massa, geen iteraties, STOP_CFL.
+# Contact (DEFI_CONTACT, CONTINUE) en de beginsnelheid (ETAT_INIT VITE)
+# staan in dit blok als het model ze heeft.
+#
+#   CARA_ELEM     - alleen als stap 3b een AFFE_CARA_ELEM bevat.
+#   EXCIT         - alle lasten uit stap 7 (load_1, load_2, ...).
+#   COMPORTEMENT  - per elset (en POI1-groep): RELATION ('ELAS',
+#                   'VMIS_ISOT_TRAC', 'VMIS_ISOT_LINE', 'VMIS_CINE_LINE',
+#                   'CABLE' of voor gaps 'DIS_CHOC') en DEFORMATION uit
+#                   CONFIG_BRIDGE ("deformation", standaard 'GROT_GDEP';
+#                   per elset de vorm die Code-Aster accepteert,
+#                   bridge_to_aster._deformation_for). Zonder elsets:
+#                   TOUT='OUI', 'ELAS'.
+#   INCREMENT     - LIST_INST koppelt aan listinst (stap 6b).
+#   SOLVEUR       - MUMPS met NPREC uit CONFIG_BRIDGE ("solver_nprec").
+#   NEWTON        - REAC_ITER uit CONFIG_BRIDGE ("newton_reac_iter",
+#                   standaard 1 = tangente matrix elke iteratie).
+#   CONVERGENCE   - RESI_GLOB_RELA en ITER_GLOB_MAXI uit CONFIG_BRIDGE
+#                   ("convergence_resi_rela", "newton_max_iter").
+# =====================================================
+try:
+    res = DYNA_NON_LINE(
+        MODELE=model,
+        CHAM_MATER=fieldmat,
+        CARA_ELEM=cara,
+        EXCIT=(
+            _F(CHARGE=load_1),
+            _F(CHARGE=load_2),
+        ),
+        COMPORTEMENT=_F(GROUP_MA='Balk', RELATION='ELAS', DEFORMATION='PETIT'),
+        INCREMENT=_F(LIST_INST=listinst),
+        SCHEMA_TEMPS=_F(SCHEMA='HHT', ALPHA=-0.1, FORMULATION='DEPLACEMENT'),
+        ARCHIVAGE=_F(LIST_INST=outlist),
+        SOLVEUR=_F(METHODE='MUMPS', NPREC=8),
+        NEWTON=_F(REAC_ITER=1),
+        CONVERGENCE=_F(RESI_GLOB_RELA=1e-05, ITER_GLOB_MAXI=20),
+    )
+except Exception as err:
+    if not str(getattr(err, 'id_message', '')).startswith('MECANONLINE'):
+        raise
+    print('BRIDGE_ONVOLLEDIG', res.getAccessParameters()['INST'][-1])
+t_res = res.getAccessParameters()['INST'][-1]
+
+
+# =====================================================
+# 9. POST-PROCESSING VELDEN BEREKENEN  (CALC_CHAMP)
+# Zelfde velden als MECA_STATIQUE; heeft minstens een materiaal een
+# hardingscurve, dan komen er op de 3D-elsets bij:
+#   EPSP_NOEU  - plastische strain tensor
+#   VARI_NOEU  - interne variabelen (V1 = eq. plastische strain)
+# =====================================================
+res = CALC_CHAMP(
+    reuse=res,
+    RESULTAT=res,
+    FORCE=('REAC_NODA', ),
+)
+
+# Balken: extreme axiale spanning in de doorsnede.
+res = CALC_CHAMP(
+    reuse=res,
+    RESULTAT=res,
+    GROUP_MA=('Balk',),
+    CONTRAINTE=('SIPM_ELNO', ),
+)
+
+
+
+# =====================================================
+# 10. RESULTAAT-EXTRACTIE
+# Alle gearchiveerde tijdstippen: route 'liml' (standaard) via
+# aster_results_export, route 'tabel' met POST_RELEVE_T TOUT_ORDRE='OUI'
+# (de tabel heeft een kolom INST).
+# =====================================================
+#-- tabellen niet nodig (result_route='liml') --
+
+
+# =====================================================
+# 11. TABELLEN WEGSCHRIJVEN NAAR .resu  (IMPR_TABLE)
+# UNITE=8 -> 'F resu ... R 8' in study.export
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.export_results(
+    res, '<WORKDIR>\\DY-02\\DY-02_verif_results.xml', '<WORKDIR>\\DY-02\\DY-02.liml',
+    extra_results=dict((k, globals()[k]) for k in
+                       ('res_sup', 'res_moy', 'res_inf',
+                        'res_flux', 'res_err')
+                       if k in globals()),
+    precision='single')
+
+
+# =====================================================
+# 12. EXPORT NAAR MED-FORMAAT (ParaView / Salome), alleen met de
+# instelling "med_export" (bridge_to_aster._build_impr_resu_block;
+# UNITE=80 -> 'F rmed ... R 80' in study.export). Mecway krijgt de
+# resultaten via de .liml of de tabellen, niet via een exportbestand.
+# =====================================================
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

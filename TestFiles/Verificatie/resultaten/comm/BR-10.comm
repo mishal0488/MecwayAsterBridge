@@ -1,0 +1,734 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor MECA_STATIQUE (lineair-statische analyse).
+# Compatibel met Code-Aster v16 en v17.
+# Invulling via Python str.format() vanuit bridge_to_aster.py
+# (_build_lin_static).
+#
+# Placeholders (worden ingevuld door bridge_to_aster.py via str.format).
+# In dit bronbestand staan ze als naam tussen enkele accolades; in de
+# gegenereerde study.comm zijn ze vervangen door de werkelijke Code-Aster code:
+#
+#   defigroup_block   -> DEFI_GROUP (coupling-slaves, knoopgroepen per
+#                        richting, groepen voor tabellen), evt. CREA_MAILLAGE
+#                        en MODI_MAILLAGE ORIE_PEAU (of commentaar)
+#   model_block       -> AFFE_MODELE per elset (POU_D_E / DKT / COQUE_3D /
+#                        3D / DIS_T / DIS_TR)
+#   cara_elem_block   -> AFFE_CARA_ELEM balk-, schaal-, veer- en POI1-
+#                        eigenschappen (of commentaar)
+#   materials_block   -> DEFI_MATERIAU per materiaal (incl. RHO)
+#   fieldmat_block    -> AFFE_MATERIAU toewijzing
+#   loads_block       -> AFFE_CHAR_MECA's: load_1 met randvoorwaarden en
+#                        couplings, daarna een per belasting
+#   excit_clause      -> EXCIT met alle lasten
+#   cara_elem_ref     -> "    CARA_ELEM=cara,\n" of "" in MECA_STATIQUE
+#   solveur_ref       -> "    SOLVEUR=_F(METHODE=.., ..),\n    INFO=2,\n"
+#   calc_champ_block  -> CALC_CHAMP (+ POST_CHAMP voor schalen), velden
+#                        afhankelijk van element-typen
+#   postreleve_block  -> POST_RELEVE_T tabellen
+#   impr_table_block  -> IMPR_TABLE aanroepen
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# LETOP accolades in dit bronbestand:
+#   Code-Aster .comm-syntax gebruikt GEEN accolades, dus normaal hoeft
+#   er niets ge-escaped te worden. Voeg je ooit een accolade toe die
+#   GEEN placeholder is, verdubbel deze dan ({ of }) zodat str.format()
+#   er geen KeyError op gooit.
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH INLEZEN
+# FORMAT='ASTER': mesh rechtstreeks uit de .liml (bridge_mesh.py)
+# UNITE=20 komt overeen met 'F mail ... D 20' in study.export
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+# =====================================================
+# 2. STANDAARD GROEPEN AANMAKEN (alle elementen / knopen)
+# 'all_nodes' (afgeleid van 'all_elems') wordt door POST_RELEVE_T
+# gebruikt om alle knopen te exporteren naar het .resu-bestand.
+# DEFI_GROUP moet NA LIRE_MAILLAGE en VOOR AFFE_MODELE staan.
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+# =====================================================
+# 2b. KNOOPGROEPEN VOOR RANDVOORWAARDEN (en mesh-aanpassingen)
+# Gegenereerd door _build_defigroup_block() in bridge_to_aster.py:
+#   - CREA_GROUP_NO per coupling-slave op een faceselection
+#     (GROUP_MA=vlakgroep) en voor balktabellen; de Mecway-selecties
+#     zelf staan al als groep in het mesh (bridge_mesh.py)
+#   - CREA_MAILLAGE MODI_MAILLE (QUAD8_9 / TRIA6_7) voor COQUE_3D
+#   - MODI_MAILLAGE ORIE_PEAU voor drukvlakken op volume-elementen
+# Meerdere entries staan als tuple: CREA_GROUP_NO=(_F(...), _F(...),)
+# Is er niets van dit alles, dan staat hier:
+#   #-- not used in this analysis --
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_NO=(
+        _F(NOM='BRSY1', NOEUD=('N1', 'N4', 'N5', 'N8', 'N9', 'N12', 'N13', 'N16',
+            'N17', 'N20', 'N21', 'N24', 'N25', 'N28', 'N29', 'N32',
+            'N33', 'N36', 'N37', 'N40', 'N41', 'N44', 'N45', 'N48',
+            'N49', 'N52', 'N53', 'N56', 'N57', 'N60', 'N61', 'N64',
+            'N65', 'N68', 'N69', 'N72', 'N73', 'N76', 'N77', 'N80',
+            'N81', 'N84', 'N85', 'N88', 'N89', 'N92', 'N93', 'N96',
+            'N97', 'N100', 'N101', 'N104', 'N105', 'N108', 'N109', 'N112',
+            'N113', 'N116', 'N117', 'N120', 'N121', 'N124', 'N125', 'N128',
+            'N130', 'N132', 'N134', 'N136', 'N138', 'N140', 'N142', 'N144',
+            'N146', 'N148', 'N150', 'N152', 'N154', 'N156', 'N158', 'N160',
+            'N162', 'N164', 'N166', 'N168', 'N170', 'N172', 'N174', 'N176',
+            'N178', 'N180', 'N182', 'N184', 'N186', 'N188', 'N190', 'N192',
+            'N194', 'N196', 'N198', 'N200', 'N202', 'N204', 'N206', 'N208',
+            'N210', 'N212', 'N214', 'N216', 'N218', 'N220', 'N222', 'N224',
+            'N226', 'N228', 'N230', 'N232', 'N234', 'N236', 'N238', 'N240',
+            'N242', 'N244', 'N246', 'N248', 'N250', 'N252', 'N254', 'N256',
+            'N258', 'N260', 'N262', 'N264', 'N266', 'N268', 'N270', 'N272',
+            'N274', 'N276', 'N278', 'N280', 'N282', 'N284', 'N286', 'N288',
+            'N290', 'N292', 'N294', 'N296', 'N298', 'N300', 'N302', 'N304',
+            'N306', 'N308', 'N310', 'N312', 'N314', 'N316', 'N318', 'N320',
+            'N322', 'N324', 'N326', 'N328', 'N330', 'N332', 'N334', 'N336',
+            'N338', 'N340', 'N342', 'N344', 'N346', 'N348', 'N350', 'N352',
+            'N354', 'N356', 'N358', 'N360', 'N362', 'N364', 'N366', 'N368',
+            'N370', 'N372', 'N374', 'N376', 'N378', 'N380', 'N382', 'N384',
+            'N386', 'N388', 'N390', 'N392', 'N394', 'N396', 'N398', 'N400',
+            'N402', 'N404', 'N406', 'N408', 'N410', 'N412', 'N414', 'N416',
+            'N418', 'N420', 'N422', 'N424', 'N426', 'N428', 'N430', 'N432',
+            'N434', 'N436', 'N438', 'N440', 'N442', 'N444', 'N446', 'N448',
+            'N450', 'N452', 'N454', 'N456', 'N458', 'N460', 'N462', 'N464',
+            'N466', 'N468', 'N470', 'N472', 'N474', 'N476', 'N478', 'N480',
+            'N482', 'N484', 'N486', 'N488', 'N490', 'N492', 'N494', 'N496',
+            'N498', 'N500', 'N502', 'N504', 'N506', 'N508', 'N510', 'N512',
+            'N514', 'N516', 'N518', 'N520', 'N522', 'N524', 'N526', 'N528',
+            'N530', 'N532', 'N534', 'N536', 'N538', 'N540', 'N542', 'N544',
+            'N546', 'N548', 'N550', 'N552', 'N554', 'N556', 'N558', 'N560',
+            'N562', 'N564', 'N566', 'N568', 'N570', 'N572', 'N574', 'N576',
+            'N578', 'N580', 'N582', 'N584', 'N586', 'N588', 'N590', 'N592',
+            'N594', 'N596', 'N598', 'N600', 'N602', 'N604', 'N606', 'N608',
+            'N610', 'N612', 'N614', 'N616', 'N618', 'N620', 'N622', 'N624',
+            'N626', 'N628', 'N630', 'N632', 'N634', 'N636', 'N638', 'N640',
+            'N642', 'N644', 'N646', 'N648', 'N650', 'N652', 'N654', 'N656',
+            'N658', 'N660', 'N662', 'N664', 'N666', 'N668', 'N670', 'N672',
+            'N674', 'N676', 'N678', 'N680', 'N682', 'N684', 'N686', 'N688',
+            'N690', 'N692', 'N694', 'N696', 'N698', 'N700', 'N702', 'N704',
+            'N706', 'N708', 'N710', 'N712', 'N714', 'N716', 'N718', 'N720',
+            'N722', 'N724', 'N726', 'N728', 'N730', 'N732', 'N734', 'N736',
+            'N738', 'N740', 'N742', 'N744', 'N746', 'N748', 'N750', 'N752',
+            'N754', 'N756', 'N758', 'N760', 'N762', 'N764', 'N766', 'N768',
+            'N770', 'N772', 'N774', 'N776', 'N778', 'N780', 'N782', 'N784',
+            'N786', 'N788', 'N790', 'N792', 'N794', 'N796', 'N798', 'N800',
+            'N802', 'N804', 'N806', 'N808', 'N810', 'N812', 'N814', 'N816',
+            'N818', 'N820', 'N822', 'N824', 'N826', 'N828', 'N830', 'N832',
+            'N834', 'N836', 'N838', 'N840', 'N842', 'N844', 'N846', 'N848',
+            'N850', 'N852', 'N854', 'N856', 'N858', 'N860', 'N862', 'N864',
+            'N866', 'N868', 'N870', 'N872', 'N874', 'N876', 'N878', 'N880',
+            'N882', 'N884', 'N886', 'N888', 'N890', 'N892', 'N894', 'N896',
+            'N898', 'N900', 'N902', 'N904', 'N906', 'N908', 'N910', 'N912',
+            'N914', 'N916', 'N918', 'N920', 'N922', 'N924', 'N926', 'N928',
+            'N930', 'N932', 'N934', 'N936', 'N938', 'N940', 'N942', 'N944',
+            'N946', 'N948', 'N950', 'N952', 'N954', 'N956', 'N958', 'N960',
+            'N962', 'N964', 'N966', 'N968', 'N970', 'N972', 'N974', 'N976',
+            'N978', 'N980', 'N982', 'N984', 'N986', 'N988', 'N990', 'N992',
+            'N994', 'N996', 'N998', 'N1000', 'N1002', 'N1004', 'N1006', 'N1008',
+            'N1010', 'N1012', 'N1014', 'N1016', 'N1018', 'N1020', 'N1022', 'N1024',
+            'N1026', 'N1028', 'N1030', 'N1032', 'N1034', 'N1036', 'N1038', 'N1040',
+            'N1042', 'N1044', 'N1046', 'N1048', 'N1050', 'N1052', 'N1054', 'N1056',
+            'N1058', 'N1060', 'N1062', 'N1064', 'N1066', 'N1068', 'N1070', 'N1072',
+            'N1074', 'N1076', 'N1078', 'N1080', 'N1082', 'N1084', 'N1086', 'N1088',
+            'N1090', 'N1092', 'N1094', 'N1096', 'N1098', 'N1100', 'N1102', 'N1104',
+            'N1106', 'N1108', 'N1110', 'N1112', 'N1114', 'N1116', 'N1118', 'N1120',
+            'N1122', 'N1124', 'N1126', 'N1128', 'N1130', 'N1132', 'N1134', 'N1136',
+            'N1138', 'N1140', 'N1142', 'N1144', 'N1146', 'N1148', 'N1150', 'N1152',
+            'N1154', 'N1156', 'N1158', 'N1160', 'N1162', 'N1164', 'N1166', 'N1168',
+            'N1170', 'N1172', 'N1174', 'N1176', 'N1178', 'N1180', 'N1182', 'N1184',
+            'N1186', 'N1188', 'N1190', 'N1192', 'N1194', 'N1196', 'N1198', 'N1200',
+            'N1202', 'N1204', 'N1206', 'N1208', 'N1210', 'N1212', 'N1214', 'N1216',
+            'N1218', 'N1220', 'N1222', 'N1224', 'N1226', 'N1228', 'N1230', 'N1232',
+            'N1234', 'N1236', 'N1238', 'N1240', 'N1242', 'N1244', 'N1246', 'N1248',
+            'N1250', 'N1252', 'N1254', 'N1256', 'N1258', 'N1260', 'N1262', 'N1264',
+            'N1266', 'N1268', 'N1270', 'N1272', 'N1274', 'N1276', 'N1278', 'N1280',
+            'N1282', 'N1284', 'N1286', 'N1288', 'N1290', 'N1292', 'N1294', 'N1296',
+            'N1298', 'N1300', 'N1302', 'N1304', 'N1306', 'N1308', 'N1310', 'N1312',
+            'N1314', 'N1316', 'N1318', 'N1320', 'N1322', 'N1324', 'N1326', 'N1328',
+            'N1330', 'N1332', 'N1334', 'N1336', 'N1338', 'N1340', 'N1342', 'N1344',
+            'N1346', 'N1348', 'N1350', 'N1352', 'N1354', 'N1356', 'N1358', 'N1360',
+            'N1362', 'N1364', 'N1366', 'N1368', 'N1370', 'N1372', 'N1374', 'N1376',
+            'N1378', 'N1380', 'N1382', 'N1384', 'N1386', 'N1388', 'N1390', 'N1392',
+            'N1394', 'N1396', 'N1398', 'N1400', 'N1402', 'N1404', 'N1406', 'N1408',
+            'N1410', 'N1412', 'N1414', 'N1416', 'N1418', 'N1420', 'N1422', 'N1424',
+            'N1426', 'N1428', 'N1430', 'N1432', 'N1434', 'N1436', 'N1438', 'N1440',
+            'N1442', 'N1444', 'N1446', 'N1448', 'N1450', 'N1452', 'N1454', 'N1456',
+            'N1458', 'N1460', 'N1462', 'N1464', 'N1466', 'N1468', 'N1470', 'N1472',
+            'N1474', 'N1476', 'N1478', 'N1480', 'N1482', 'N1484', 'N1486', 'N1488',
+            'N1490', 'N1492', 'N1494', 'N1496', 'N1498', 'N1500', 'N1502', 'N1504',
+            'N1506', 'N1508', 'N1510', 'N1512', 'N1514', 'N1516', 'N1518', 'N1520',
+            'N1522', 'N1524', 'N1526', 'N1528', 'N1530', 'N1532', 'N1534', 'N1536',
+            'N1538', 'N1540', 'N1542', 'N1544', 'N1546', 'N1548', 'N1550', 'N1552',
+            'N1554', 'N1556', 'N1558', 'N1560', 'N1562', 'N1564', 'N1566', 'N1568',
+            'N1570', 'N1572', 'N1574', 'N1576', 'N1578', 'N1580', 'N1582', 'N1584',
+            'N1586', 'N1588', 'N1590', 'N1592', 'N1594', 'N1596', 'N1598', 'N1600',
+            'N1602', 'N1604', 'N1606', 'N1608', 'N1610', 'N1612', 'N1614', 'N1616',
+            'N1618', 'N1620', 'N1622', 'N1624', 'N1626', 'N1628', 'N1630', 'N1632',
+            'N1634', 'N1636', 'N1638', 'N1640', 'N1642', 'N1644', 'N1646', 'N1648',
+            'N1650', 'N1652', 'N1654', 'N1656', 'N1658', 'N1660', 'N1662', 'N1664',
+            'N1666', 'N1668', 'N1670', 'N1672', 'N1674', 'N1676', 'N1678', 'N1680',
+            'N1682', 'N1684', 'N1686', 'N1688', 'N1690', 'N1692', 'N1694', 'N1696',
+            'N1698', 'N1700', 'N1702', 'N1704', 'N1706', 'N1708', 'N1710', 'N1712',
+            'N1714', 'N1716', 'N1718', 'N1720', 'N1722', 'N1724', 'N1726', 'N1728',
+            'N1730', 'N1732', 'N1734', 'N1736', 'N1738', 'N1740', 'N1742', 'N1744',
+            'N1746', 'N1748', 'N1750', 'N1752', 'N1754', 'N1756', 'N1758', 'N1760',
+            'N1762', 'N1764', 'N1766', 'N1768', 'N1770', 'N1772', 'N1774', 'N1776',
+            'N1778', 'N1780', 'N1782', 'N1784', 'N1786', 'N1788', 'N1790', 'N1792',
+            'N1794', 'N1796', 'N1798', 'N1800', 'N1802', 'N1804', 'N1806', 'N1808',
+            'N1810', 'N1812', 'N1814', 'N1816', 'N1818', 'N1820', 'N1822', 'N1824',
+            'N1826', 'N1828', 'N1830', 'N1832', 'N1834', 'N1836', 'N1838', 'N1840',
+            'N1842', 'N1844', 'N1846', 'N1848', 'N1850', 'N1852', 'N1854', 'N1856',
+            'N1858', 'N1860', 'N1862', 'N1864', 'N1866', 'N1868', 'N1870', 'N1872',
+            'N1874', 'N1876', 'N1878', 'N1880', 'N1882', 'N1884', 'N1886', 'N1888',
+            'N1890', 'N1892', 'N1894', 'N1896', 'N1898', 'N1900', 'N1902', 'N1904',
+            'N1906', 'N1908', 'N1910', 'N1912', 'N1914', 'N1916', 'N1918', 'N1920',
+            'N1922', 'N1924', 'N1926', 'N1928', 'N1930', 'N1932', 'N1934', 'N1936',
+            'N1938', 'N1940', 'N1942', 'N1944', 'N1946', 'N1948', 'N1950', 'N1952',
+            'N1954', 'N1956', 'N1958', 'N1960', 'N1962', 'N1964', 'N1966', 'N1968',
+            'N1970', 'N1972', 'N1974', 'N1976', 'N1978', 'N1980', 'N1982', 'N1984',
+            'N1986', 'N1988', 'N1990', 'N1992', 'N1994', 'N1996', 'N1998', 'N2000',
+            'N2002', 'N2004', 'N2006', 'N2008', 'N2010', 'N2012', 'N2014', 'N2016',
+            'N2018', 'N2020', 'N2022', 'N2024', 'N2026', 'N2028', 'N2030', 'N2032',
+            'N2034', 'N2036', 'N2038', 'N2040', 'N2042', 'N2044', 'N2046', 'N2048',
+            'N2050', 'N2052', 'N2054', 'N2056', 'N2058', 'N2060', 'N2062', 'N2064',
+            'N2066', 'N2068', 'N2070', 'N2072', 'N2074', 'N2076', 'N2078', 'N2080',
+            'N2082', 'N2084', 'N2086', 'N2088', 'N2090', 'N2092', 'N2094', 'N2096',
+            'N2098', 'N2100', 'N2102', 'N2104', 'N2106', 'N2108', 'N2110', 'N2112',
+            'N2114', 'N2116', 'N2118', 'N2120', 'N2122', 'N2124', 'N2126', 'N2128',
+            'N2130', 'N2132', 'N2134', 'N2136', 'N2138', 'N2140', 'N2142', 'N2144',
+            'N2146', 'N2148', 'N2150', 'N2152', 'N2154', 'N2156', 'N2158', 'N2160',
+            'N2162', 'N2164', 'N2166', 'N2168', 'N2170', 'N2172', 'N2174', 'N2176',
+            'N2178', 'N2180', 'N2182', 'N2184', 'N2186', 'N2188', 'N2190', 'N2192',
+            'N2194', 'N2196', 'N2198', 'N2200', 'N2202', 'N2204', 'N2206', 'N2208',
+            'N2210', 'N2212', 'N2214', 'N2216', 'N2218', 'N2220', 'N2222', 'N2224',
+            'N2226', 'N2228', 'N2230', 'N2232', 'N2234', 'N2236', 'N2238', 'N2240',
+            'N2242', 'N2244', 'N2246', 'N2248', 'N2250', 'N2252', 'N2254', 'N2256',
+            'N2258', 'N2260', 'N2262', 'N2264', 'N2266', 'N2268', 'N2270', 'N2272',
+            'N2274', 'N2276', 'N2278', 'N2280', 'N2282', 'N2284', 'N2286', 'N2288',
+            'N2290', 'N2292', 'N2294', 'N2296', 'N2298', 'N2300', 'N2302', 'N2304',
+            'N2306', 'N2308', 'N2310', 'N2312', 'N2314', 'N2316', 'N2318', 'N2320',
+            'N2322', 'N2324', 'N2326', 'N2328', 'N2330', 'N2332', 'N2334', 'N2336',
+            'N2338', 'N2340', 'N2342', 'N2344', 'N2346', 'N2348', 'N2350', 'N2352',
+            'N2354', 'N2356', 'N2358', 'N2360', 'N2362', 'N2364', 'N2366', 'N2368',
+            'N2370', 'N2372', 'N2374', 'N2376', 'N2378', 'N2380', 'N2382', 'N2384',
+            'N2386', 'N2388', 'N2390', 'N2392', 'N2394', 'N2396', 'N2398', 'N2400',
+            'N2402', 'N2404', 'N2406', 'N2408', 'N2410', 'N2412', 'N2414', 'N2416',
+            'N2418', 'N2420', 'N2422', 'N2424', 'N2426', 'N2428', 'N2430', 'N2432',
+            'N2434', 'N2436', 'N2438', 'N2440', 'N2442', 'N2444', 'N2446', 'N2448',
+            'N2450', 'N2452', 'N2454', 'N2456', 'N2458', 'N2460', 'N2462', 'N2464',
+            'N2466', 'N2468', 'N2470', 'N2472', 'N2474', 'N2476', 'N2478', 'N2480',
+            'N2482', 'N2484', 'N2486', 'N2488', 'N2490', 'N2492', 'N2494', 'N2496',)),
+        _F(NOM='BRSY2', NOEUD=('N1', 'N2', 'N5', 'N6', 'N9', 'N10', 'N13', 'N14',
+            'N17', 'N18', 'N21', 'N22', 'N25', 'N26', 'N29', 'N30',
+            'N33', 'N34', 'N37', 'N38', 'N41', 'N42', 'N45', 'N46',
+            'N49', 'N50', 'N53', 'N54', 'N57', 'N58', 'N61', 'N62',
+            'N65', 'N66', 'N69', 'N70', 'N73', 'N74', 'N77', 'N78',
+            'N81', 'N82', 'N85', 'N86', 'N89', 'N90', 'N93', 'N94',
+            'N97', 'N98', 'N101', 'N102', 'N105', 'N106', 'N109', 'N110',
+            'N113', 'N114', 'N117', 'N118', 'N121', 'N122', 'N125', 'N126',
+            'N2497', 'N2499', 'N2501', 'N2503', 'N2505', 'N2507', 'N2509', 'N2511',
+            'N2513', 'N2515', 'N2517', 'N2519', 'N2521', 'N2523', 'N2525', 'N2527',
+            'N2529', 'N2531', 'N2533', 'N2535', 'N2537', 'N2539', 'N2541', 'N2543',
+            'N2545', 'N2547', 'N2549', 'N2551', 'N2553', 'N2555', 'N2557', 'N2559',
+            'N3745', 'N3747', 'N3749', 'N3751', 'N3753', 'N3755', 'N3757', 'N3759',
+            'N3761', 'N3763', 'N3765', 'N3767', 'N3769', 'N3771', 'N3773', 'N3775',
+            'N3777', 'N3779', 'N3781', 'N3783', 'N3785', 'N3787', 'N3789', 'N3791',
+            'N3793', 'N3795', 'N3797', 'N3799', 'N3801', 'N3803', 'N3805', 'N3807',
+            'N4993', 'N4995', 'N4997', 'N4999', 'N5001', 'N5003', 'N5005', 'N5007',
+            'N5009', 'N5011', 'N5013', 'N5015', 'N5017', 'N5019', 'N5021', 'N5023',
+            'N5025', 'N5027', 'N5029', 'N5031', 'N5033', 'N5035', 'N5037', 'N5039',
+            'N5041', 'N5043', 'N5045', 'N5047', 'N5049', 'N5051', 'N5053', 'N5055',
+            'N6241', 'N6243', 'N6245', 'N6247', 'N6249', 'N6251', 'N6253', 'N6255',
+            'N6257', 'N6259', 'N6261', 'N6263', 'N6265', 'N6267', 'N6269', 'N6271',
+            'N6273', 'N6275', 'N6277', 'N6279', 'N6281', 'N6283', 'N6285', 'N6287',
+            'N6289', 'N6291', 'N6293', 'N6295', 'N6297', 'N6299', 'N6301', 'N6303',
+            'N7489', 'N7491', 'N7493', 'N7495', 'N7497', 'N7499', 'N7501', 'N7503',
+            'N7505', 'N7507', 'N7509', 'N7511', 'N7513', 'N7515', 'N7517', 'N7519',
+            'N7521', 'N7523', 'N7525', 'N7527', 'N7529', 'N7531', 'N7533', 'N7535',
+            'N7537', 'N7539', 'N7541', 'N7543', 'N7545', 'N7547', 'N7549', 'N7551',
+            'N8737', 'N8739', 'N8741', 'N8743', 'N8745', 'N8747', 'N8749', 'N8751',
+            'N8753', 'N8755', 'N8757', 'N8759', 'N8761', 'N8763', 'N8765', 'N8767',
+            'N8769', 'N8771', 'N8773', 'N8775', 'N8777', 'N8779', 'N8781', 'N8783',
+            'N8785', 'N8787', 'N8789', 'N8791', 'N8793', 'N8795', 'N8797', 'N8799',
+            'N9985', 'N9987', 'N9989', 'N9991', 'N9993', 'N9995', 'N9997', 'N9999',
+            'N10001', 'N10003', 'N10005', 'N10007', 'N10009', 'N10011', 'N10013', 'N10015',
+            'N10017', 'N10019', 'N10021', 'N10023', 'N10025', 'N10027', 'N10029', 'N10031',
+            'N10033', 'N10035', 'N10037', 'N10039', 'N10041', 'N10043', 'N10045', 'N10047',
+            'N11233', 'N11235', 'N11237', 'N11239', 'N11241', 'N11243', 'N11245', 'N11247',
+            'N11249', 'N11251', 'N11253', 'N11255', 'N11257', 'N11259', 'N11261', 'N11263',
+            'N11265', 'N11267', 'N11269', 'N11271', 'N11273', 'N11275', 'N11277', 'N11279',
+            'N11281', 'N11283', 'N11285', 'N11287', 'N11289', 'N11291', 'N11293', 'N11295',
+            'N12481', 'N12483', 'N12485', 'N12487', 'N12489', 'N12491', 'N12493', 'N12495',
+            'N12497', 'N12499', 'N12501', 'N12503', 'N12505', 'N12507', 'N12509', 'N12511',
+            'N12513', 'N12515', 'N12517', 'N12519', 'N12521', 'N12523', 'N12525', 'N12527',
+            'N12529', 'N12531', 'N12533', 'N12535', 'N12537', 'N12539', 'N12541', 'N12543',
+            'N13729', 'N13731', 'N13733', 'N13735', 'N13737', 'N13739', 'N13741', 'N13743',
+            'N13745', 'N13747', 'N13749', 'N13751', 'N13753', 'N13755', 'N13757', 'N13759',
+            'N13761', 'N13763', 'N13765', 'N13767', 'N13769', 'N13771', 'N13773', 'N13775',
+            'N13777', 'N13779', 'N13781', 'N13783', 'N13785', 'N13787', 'N13789', 'N13791',
+            'N14977', 'N14979', 'N14981', 'N14983', 'N14985', 'N14987', 'N14989', 'N14991',
+            'N14993', 'N14995', 'N14997', 'N14999', 'N15001', 'N15003', 'N15005', 'N15007',
+            'N15009', 'N15011', 'N15013', 'N15015', 'N15017', 'N15019', 'N15021', 'N15023',
+            'N15025', 'N15027', 'N15029', 'N15031', 'N15033', 'N15035', 'N15037', 'N15039',
+            'N16225', 'N16227', 'N16229', 'N16231', 'N16233', 'N16235', 'N16237', 'N16239',
+            'N16241', 'N16243', 'N16245', 'N16247', 'N16249', 'N16251', 'N16253', 'N16255',
+            'N16257', 'N16259', 'N16261', 'N16263', 'N16265', 'N16267', 'N16269', 'N16271',
+            'N16273', 'N16275', 'N16277', 'N16279', 'N16281', 'N16283', 'N16285', 'N16287',
+            'N17473', 'N17475', 'N17477', 'N17479', 'N17481', 'N17483', 'N17485', 'N17487',
+            'N17489', 'N17491', 'N17493', 'N17495', 'N17497', 'N17499', 'N17501', 'N17503',
+            'N17505', 'N17507', 'N17509', 'N17511', 'N17513', 'N17515', 'N17517', 'N17519',
+            'N17521', 'N17523', 'N17525', 'N17527', 'N17529', 'N17531', 'N17533', 'N17535',
+            'N18721', 'N18723', 'N18725', 'N18727', 'N18729', 'N18731', 'N18733', 'N18735',
+            'N18737', 'N18739', 'N18741', 'N18743', 'N18745', 'N18747', 'N18749', 'N18751',
+            'N18753', 'N18755', 'N18757', 'N18759', 'N18761', 'N18763', 'N18765', 'N18767',
+            'N18769', 'N18771', 'N18773', 'N18775', 'N18777', 'N18779', 'N18781', 'N18783',
+            'N19969', 'N19971', 'N19973', 'N19975', 'N19977', 'N19979', 'N19981', 'N19983',
+            'N19985', 'N19987', 'N19989', 'N19991', 'N19993', 'N19995', 'N19997', 'N19999',
+            'N20001', 'N20003', 'N20005', 'N20007', 'N20009', 'N20011', 'N20013', 'N20015',
+            'N20017', 'N20019', 'N20021', 'N20023', 'N20025', 'N20027', 'N20029', 'N20031',
+            'N21217', 'N21219', 'N21221', 'N21223', 'N21225', 'N21227', 'N21229', 'N21231',
+            'N21233', 'N21235', 'N21237', 'N21239', 'N21241', 'N21243', 'N21245', 'N21247',
+            'N21249', 'N21251', 'N21253', 'N21255', 'N21257', 'N21259', 'N21261', 'N21263',
+            'N21265', 'N21267', 'N21269', 'N21271', 'N21273', 'N21275', 'N21277', 'N21279',
+            'N22465', 'N22467', 'N22469', 'N22471', 'N22473', 'N22475', 'N22477', 'N22479',
+            'N22481', 'N22483', 'N22485', 'N22487', 'N22489', 'N22491', 'N22493', 'N22495',
+            'N22497', 'N22499', 'N22501', 'N22503', 'N22505', 'N22507', 'N22509', 'N22511',
+            'N22513', 'N22515', 'N22517', 'N22519', 'N22521', 'N22523', 'N22525', 'N22527',
+            'N23713', 'N23715', 'N23717', 'N23719', 'N23721', 'N23723', 'N23725', 'N23727',
+            'N23729', 'N23731', 'N23733', 'N23735', 'N23737', 'N23739', 'N23741', 'N23743',
+            'N23745', 'N23747', 'N23749', 'N23751', 'N23753', 'N23755', 'N23757', 'N23759',
+            'N23761', 'N23763', 'N23765', 'N23767', 'N23769', 'N23771', 'N23773', 'N23775',
+            'N24961', 'N24963', 'N24965', 'N24967', 'N24969', 'N24971', 'N24973', 'N24975',
+            'N24977', 'N24979', 'N24981', 'N24983', 'N24985', 'N24987', 'N24989', 'N24991',
+            'N24993', 'N24995', 'N24997', 'N24999', 'N25001', 'N25003', 'N25005', 'N25007',
+            'N25009', 'N25011', 'N25013', 'N25015', 'N25017', 'N25019', 'N25021', 'N25023',
+            'N26209', 'N26211', 'N26213', 'N26215', 'N26217', 'N26219', 'N26221', 'N26223',
+            'N26225', 'N26227', 'N26229', 'N26231', 'N26233', 'N26235', 'N26237', 'N26239',
+            'N26241', 'N26243', 'N26245', 'N26247', 'N26249', 'N26251', 'N26253', 'N26255',
+            'N26257', 'N26259', 'N26261', 'N26263', 'N26265', 'N26267', 'N26269', 'N26271',
+            'N27457', 'N27459', 'N27461', 'N27463', 'N27465', 'N27467', 'N27469', 'N27471',
+            'N27473', 'N27475', 'N27477', 'N27479', 'N27481', 'N27483', 'N27485', 'N27487',
+            'N27489', 'N27491', 'N27493', 'N27495', 'N27497', 'N27499', 'N27501', 'N27503',
+            'N27505', 'N27507', 'N27509', 'N27511', 'N27513', 'N27515', 'N27517', 'N27519',
+            'N28705', 'N28707', 'N28709', 'N28711', 'N28713', 'N28715', 'N28717', 'N28719',
+            'N28721', 'N28723', 'N28725', 'N28727', 'N28729', 'N28731', 'N28733', 'N28735',
+            'N28737', 'N28739', 'N28741', 'N28743', 'N28745', 'N28747', 'N28749', 'N28751',
+            'N28753', 'N28755', 'N28757', 'N28759', 'N28761', 'N28763', 'N28765', 'N28767',
+            'N29953', 'N29955', 'N29957', 'N29959', 'N29961', 'N29963', 'N29965', 'N29967',
+            'N29969', 'N29971', 'N29973', 'N29975', 'N29977', 'N29979', 'N29981', 'N29983',
+            'N29985', 'N29987', 'N29989', 'N29991', 'N29993', 'N29995', 'N29997', 'N29999',
+            'N30001', 'N30003', 'N30005', 'N30007', 'N30009', 'N30011', 'N30013', 'N30015',
+            'N31201', 'N31203', 'N31205', 'N31207', 'N31209', 'N31211', 'N31213', 'N31215',
+            'N31217', 'N31219', 'N31221', 'N31223', 'N31225', 'N31227', 'N31229', 'N31231',
+            'N31233', 'N31235', 'N31237', 'N31239', 'N31241', 'N31243', 'N31245', 'N31247',
+            'N31249', 'N31251', 'N31253', 'N31255', 'N31257', 'N31259', 'N31261', 'N31263',
+            'N32449', 'N32451', 'N32453', 'N32455', 'N32457', 'N32459', 'N32461', 'N32463',
+            'N32465', 'N32467', 'N32469', 'N32471', 'N32473', 'N32475', 'N32477', 'N32479',
+            'N32481', 'N32483', 'N32485', 'N32487', 'N32489', 'N32491', 'N32493', 'N32495',
+            'N32497', 'N32499', 'N32501', 'N32503', 'N32505', 'N32507', 'N32509', 'N32511',
+            'N33697', 'N33699', 'N33701', 'N33703', 'N33705', 'N33707', 'N33709', 'N33711',
+            'N33713', 'N33715', 'N33717', 'N33719', 'N33721', 'N33723', 'N33725', 'N33727',
+            'N33729', 'N33731', 'N33733', 'N33735', 'N33737', 'N33739', 'N33741', 'N33743',
+            'N33745', 'N33747', 'N33749', 'N33751', 'N33753', 'N33755', 'N33757', 'N33759',
+            'N34945', 'N34947', 'N34949', 'N34951', 'N34953', 'N34955', 'N34957', 'N34959',
+            'N34961', 'N34963', 'N34965', 'N34967', 'N34969', 'N34971', 'N34973', 'N34975',
+            'N34977', 'N34979', 'N34981', 'N34983', 'N34985', 'N34987', 'N34989', 'N34991',
+            'N34993', 'N34995', 'N34997', 'N34999', 'N35001', 'N35003', 'N35005', 'N35007',
+            'N36193', 'N36195', 'N36197', 'N36199', 'N36201', 'N36203', 'N36205', 'N36207',
+            'N36209', 'N36211', 'N36213', 'N36215', 'N36217', 'N36219', 'N36221', 'N36223',
+            'N36225', 'N36227', 'N36229', 'N36231', 'N36233', 'N36235', 'N36237', 'N36239',
+            'N36241', 'N36243', 'N36245', 'N36247', 'N36249', 'N36251', 'N36253', 'N36255',
+            'N37441', 'N37443', 'N37445', 'N37447', 'N37449', 'N37451', 'N37453', 'N37455',
+            'N37457', 'N37459', 'N37461', 'N37463', 'N37465', 'N37467', 'N37469', 'N37471',
+            'N37473', 'N37475', 'N37477', 'N37479', 'N37481', 'N37483', 'N37485', 'N37487',
+            'N37489', 'N37491', 'N37493', 'N37495', 'N37497', 'N37499', 'N37501', 'N37503',
+            'N38689', 'N38691', 'N38693', 'N38695', 'N38697', 'N38699', 'N38701', 'N38703',
+            'N38705', 'N38707', 'N38709', 'N38711', 'N38713', 'N38715', 'N38717', 'N38719',
+            'N38721', 'N38723', 'N38725', 'N38727', 'N38729', 'N38731', 'N38733', 'N38735',
+            'N38737', 'N38739', 'N38741', 'N38743', 'N38745', 'N38747', 'N38749', 'N38751',
+            'N39937', 'N39939', 'N39941', 'N39943', 'N39945', 'N39947', 'N39949', 'N39951',
+            'N39953', 'N39955', 'N39957', 'N39959', 'N39961', 'N39963', 'N39965', 'N39967',
+            'N39969', 'N39971', 'N39973', 'N39975', 'N39977', 'N39979', 'N39981', 'N39983',
+            'N39985', 'N39987', 'N39989', 'N39991', 'N39993', 'N39995', 'N39997', 'N39999',
+            'N41185', 'N41187', 'N41189', 'N41191', 'N41193', 'N41195', 'N41197', 'N41199',
+            'N41201', 'N41203', 'N41205', 'N41207', 'N41209', 'N41211', 'N41213', 'N41215',
+            'N41217', 'N41219', 'N41221', 'N41223', 'N41225', 'N41227', 'N41229', 'N41231',
+            'N41233', 'N41235', 'N41237', 'N41239', 'N41241', 'N41243', 'N41245', 'N41247',
+            'N42433', 'N42435', 'N42437', 'N42439', 'N42441', 'N42443', 'N42445', 'N42447',
+            'N42449', 'N42451', 'N42453', 'N42455', 'N42457', 'N42459', 'N42461', 'N42463',
+            'N42465', 'N42467', 'N42469', 'N42471', 'N42473', 'N42475', 'N42477', 'N42479',
+            'N42481', 'N42483', 'N42485', 'N42487', 'N42489', 'N42491', 'N42493', 'N42495',
+            'N43681', 'N43683', 'N43685', 'N43687', 'N43689', 'N43691', 'N43693', 'N43695',
+            'N43697', 'N43699', 'N43701', 'N43703', 'N43705', 'N43707', 'N43709', 'N43711',
+            'N43713', 'N43715', 'N43717', 'N43719', 'N43721', 'N43723', 'N43725', 'N43727',
+            'N43729', 'N43731', 'N43733', 'N43735', 'N43737', 'N43739', 'N43741', 'N43743',
+            'N44929', 'N44931', 'N44933', 'N44935', 'N44937', 'N44939', 'N44941', 'N44943',
+            'N44945', 'N44947', 'N44949', 'N44951', 'N44953', 'N44955', 'N44957', 'N44959',
+            'N44961', 'N44963', 'N44965', 'N44967', 'N44969', 'N44971', 'N44973', 'N44975',
+            'N44977', 'N44979', 'N44981', 'N44983', 'N44985', 'N44987', 'N44989', 'N44991',
+            'N46177', 'N46179', 'N46181', 'N46183', 'N46185', 'N46187', 'N46189', 'N46191',
+            'N46193', 'N46195', 'N46197', 'N46199', 'N46201', 'N46203', 'N46205', 'N46207',
+            'N46209', 'N46211', 'N46213', 'N46215', 'N46217', 'N46219', 'N46221', 'N46223',
+            'N46225', 'N46227', 'N46229', 'N46231', 'N46233', 'N46235', 'N46237', 'N46239',
+            'N47425', 'N47427', 'N47429', 'N47431', 'N47433', 'N47435', 'N47437', 'N47439',
+            'N47441', 'N47443', 'N47445', 'N47447', 'N47449', 'N47451', 'N47453', 'N47455',
+            'N47457', 'N47459', 'N47461', 'N47463', 'N47465', 'N47467', 'N47469', 'N47471',
+            'N47473', 'N47475', 'N47477', 'N47479', 'N47481', 'N47483', 'N47485', 'N47487',)),
+    ),
+)
+
+mesh = MODI_MAILLAGE(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    ORIE_PEAU=_F(GROUP_MA_PEAU=('Boven', 'Onder', 'BRERRVRIJ',)),
+)
+
+
+# =====================================================
+# 3. MODEL DEFINITIE
+# Gegenereerd door bridge_to_aster.py op basis van elset-dimensies.
+# Per elset wordt de bijbehorende MODELISATION gekozen:
+#   1D (line2)              -> POU_D_E   (Euler-balk; alleen SEG2)
+#   2D lineair (tri3/quad4)       -> DKT
+#   2D kwadratisch (tri6/quad8)   -> COQUE_3D (na CREA_MAILLAGE MODI_MAILLE)
+#   veren (1D met veer-materiaal) -> DIS_T
+#   vlakken met druk (op volume)  -> 3D (randelementen)
+#   losse knopen (POI1)           -> DIS_T / DIS_TR (zie bridge_mesh.py)
+#   3D (hex/tet/wedge/...)  -> 3D
+# Zonder elsets, drukvlakken en POI1-knopen wordt TOUT='OUI',
+# MODELISATION='3D' gebruikt.
+# =====================================================
+model_sain = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Blok', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='Boven', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='Onder', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='BRERRVRIJ', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+    ),
+)
+
+# =====================================================
+# XFEM-SCHEUREN (bridge: #ASTER-XFEM, bridge_xfem.py,
+# docs/Breukmechanica.md par. 7): levelsets in het gezonde
+# model, daarna het XFEM-model 'model' voor lasten en solve
+# =====================================================
+# Scheur penny: vorm=CIRKEL, centrum=(0, 0, 0), r=20 mm, normaal=(0, 0, 1), naam=penny
+fiss_1 = DEFI_FISS_XFEM(
+    MAILLAGE=mesh,
+    TYPE_DISCONTINUITE='FISSURE',
+    DEFI_FISS=_F(FORM_FISS='ELLIPSE', DEMI_GRAND_AXE=0.02, DEMI_PETIT_AXE=0.02,
+                     CENTRE=(0.0, 0.0, 0.0), VECT_X=(1.0, 0.0, 0.0),
+                     VECT_Y=(0.0, 1.0, 0.0)),
+)
+model = MODI_MODELE_XFEM(MODELE_IN=model_sain, FISSURE=(fiss_1,))
+
+
+# =====================================================
+# 3b. SECTIE-EIGENSCHAPPEN (balken, schalen, veren)
+# Gegenereerd door bridge_to_aster.py op basis van Mecway <geometric>-data.
+#
+# POUTRE: balkdoorsneden (CERCLE, RECTANGLE, ...) per GROUP_MA
+#   Voorbeeld: _F(GROUP_MA='Beam1', SECTION='CERCLE', CARA=('R',), VALE=(0.005,))
+#   Balk-orientatie: balken met een eigen V-as in Mecway krijgen
+#   ORIENTATION CARA='VECT_Y' (model_data["beam_vect_y"]); zonder eigen
+#   orientatie zijn de standaarden van Mecway en Code-Aster gelijk.
+#
+# COQUE: plaat-/schaaldikten per GROUP_MA
+#   Voorbeeld: _F(GROUP_MA='Plate1', EPAIS=0.001)
+#
+# DISCRET: veer-elementen (DIS_T met K_T_D_L stijfheidsmatrix) en
+#          losse knopen (POI1, K_T_D_N / K_TR_D_N met stijfheid 0),
+#          elk met een aparte massa-entry 0 (M_T_D_L / M_T_D_N / M_TR_D_N)
+#   Voorbeeld: _F(GROUP_MA='Spring1', CARA='K_T_D_L', VALE=(4231.0, 0.0, 0.0))
+#
+# Zonder balk-, schaal- of veersecties en zonder POI1-knopen staat hier:
+#   #-- not used in this analysis --
+# =====================================================
+#-- not used in this analysis --
+
+
+# =====================================================
+# 4. MATERIAAL-DEFINITIE
+# Gegenereerd door bridge_to_aster.py op basis van Mecway-materialen.
+# Alle waarden in SI-eenheden (Pa, kg/m3, dimensieloos).
+# RHO wordt altijd opgenomen (default 0.0) voor compatibiliteit met
+# PESANTEUR.
+# Conceptnamen MAT_1, MAT_2, ... met de Mecway-naam als commentaar erboven.
+# Voorbeeld: MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=7850.0),)
+# =====================================================
+# materiaal 'Staal'
+MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=0.0),)
+
+
+# =====================================================
+# 5. MATERIAAL-TOEWIJZING
+# Koppelt materialen aan element-sets (GROUP_MA) of, bij afwezigheid
+# van elsets, het eerste materiaal aan alle elementen (TOUT='OUI').
+# DISCRET-elsets (veren) worden overgeslagen; hun eigenschappen staan
+# uitsluitend in AFFE_CARA_ELEM.
+# =====================================================
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Blok', MATER=MAT_1),
+    ),
+)
+
+
+# =====================================================
+# 6. RANDVOORWAARDEN EN BELASTINGEN
+# Gegenereerd door bridge_to_aster.py vanuit model_data["bcs"] en
+# model_data["couplings"]. Ondersteunde Code-Aster keywords:
+#   DDL_IMPO       - inklemming, opgelegde verplaatsing/rotatie
+#   FORCE_NODALE   - puntkrachten
+#   PRES_REP       - oppervlaktedruk
+#   PESANTEUR      - zwaartekracht (vereist RHO in materiaal)
+#   LIAISON_SOLIDE - rigid body coupling (RBE2)
+#   LIAISON_RBE3   - distributing coupling (RBE3)
+# =====================================================
+load_1 = AFFE_CHAR_MECA(
+    MODELE=model,
+    DDL_IMPO=(
+        _F(GROUP_NO='BRSY1', DX=0.0),
+        _F(GROUP_NO='BRSY2', DY=0.0),
+        _F(GROUP_NO='Anker', DZ=0.0),
+    ),
+)
+
+load_2 = AFFE_CHAR_MECA(
+    MODELE=model,
+    FORCE_FACE=_F(GROUP_MA='Boven', FZ=1000000.0),
+)
+
+load_3 = AFFE_CHAR_MECA(
+    MODELE=model,
+    FORCE_FACE=_F(GROUP_MA='Onder', FZ=-1000000.0),
+)
+
+
+# =====================================================
+# 7. SOLVER: LINEAIR STATISCH
+# MECA_STATIQUE lost Ku=F op voor lineair elastisch gedrag.
+# CARA_ELEM=cara staat erin zodra stap 3b een AFFE_CARA_ELEM bevat
+# (balk-, schaal-, veersecties of POI1-knopen); anders weggelaten.
+# SOLVEUR (instelling "lin_solver"): MUMPS (direct) met NPREC uit
+# "solver_nprec" (Code-Aster-default 8) en RESI_RELA ("lin_solver_resi",
+# default 1e-6) als grens voor de geschatte fout op de oplossing; of GCPC
+# (iteratief, PRE_COND='LDLT_INC') met RESI_RELA als residu-criterium.
+# INFO=2: statistiek van de oplosser in de .mess (convergentiescherm).
+# =====================================================
+res = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    EXCIT=(
+        _F(CHARGE=load_1),
+        _F(CHARGE=load_2),
+        _F(CHARGE=load_3),
+    ),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8, RESI_RELA=1e-06),
+    INFO=2,
+)
+
+# =====================================================
+# 8. POST-PROCESSING VELDEN BEREKENEN  (CALC_CHAMP)
+# Gegenereerd door bridge_to_aster.py op basis van element-typen.
+#
+# REAC_NODA:
+#   Eigen aanroep zonder GROUP_MA (alle knopen); met elastic support
+#   zonder de veren (BRES*), zodat de veerkracht de reactie is.
+#
+# SIGM_NOEU / SIEQ_NOEU:
+#   Alleen op de 3D-elsets (GROUP_MA). Schaalspanningen hebben
+#   sub-punten (lagen) en passen niet in een NOEU-veld. Zonder
+#   3D-elsets (ook bij AFFE_MODELE TOUT='OUI') vervalt deze aanroep.
+#
+# Schalen (DKT / COQUE_3D):
+#   SIGM_ELNO -> POST_CHAMP EXTR_COQUE ('SUP', 'MOY' en 'INF')
+#   -> SIEQ_ELNO -> SIEQ_NOEU in res_sup / res_moy / res_inf.
+#
+# Balken (POU_D_E, doorsnede RECTANGLE of CERCLE):
+#   SIPM_ELNO = SIXXMIN / SIXXMAX in de doorsnede.
+#
+# Foutschatter (instelling error_estimator, alleen volume-elementen):
+#   eigen model, last en resultaat res_err, dan CALC_ERREUR ERME_ELEM /
+#   ERME_ELNO / ERME_NOEU; zie _error_estimator_block() en
+#   docs/Foutschatter.md.
+#
+# Zie _build_calc_champ_block() in bridge_to_aster.py.
+# =====================================================
+
+# =====================================================
+# XFEM: resultaten op het oorspronkelijke mesh (bridge_xfem.result_block)
+# De verplaatsing van het XFEM-model heeft extra vrijheidsgraden (H1X..,
+# K1..) en is op een knoop van een gesneden element niet de fysische
+# verplaatsing. POST_MAIL_XFEM maakt een mesh dat de scheur volgt,
+# POST_CHAM_XFEM zet DEPL en SIEF_ELGA daarop; elke knoop van het
+# oorspronkelijke mesh is een knoop van dat mesh, dus PROJ_CHAMP
+# COLLOCATION geeft de waarde aan de eigen kant van de scheur. Het
+# hulpmodel krijgt alleen de volume-elsets (het mesh van POST_MAIL_XFEM houdt
+# de groepen; zijn frontcellen en randen zonder volume gaven alarm
+# MODELE1_63). REAC_NODA komt uit het XFEM-resultaat (DX, DY, DZ).
+# =====================================================
+res_xfem = res
+res_xfem = CALC_CHAMP(reuse=res_xfem, RESULTAT=res_xfem, FORCE=('REAC_NODA',))
+mesh_xvisu = POST_MAIL_XFEM(MODELE=model)
+model_xvisu = AFFE_MODELE(
+    MAILLAGE=mesh_xvisu,
+    AFFE=_F(GROUP_MA=('Blok',), PHENOMENE='MECANIQUE', MODELISATION='3D'),
+)
+res_xvisu = POST_CHAM_XFEM(MODELE_VISU=model_xvisu, RESULTAT=res_xfem)
+res_xvisu = CALC_CHAMP(reuse=res_xvisu, RESULTAT=res_xvisu,
+                       CONTRAINTE=('SIGM_NOEU',), CRITERES=('SIEQ_NOEU',))
+res = PROJ_CHAMP(RESULTAT=res_xvisu, MODELE_1=model_xvisu,
+                 MODELE_2=model_sain, METHODE='COLLOCATION',
+                 NOM_CHAM=('DEPL', 'SIGM_NOEU', 'SIEQ_NOEU'))
+reac_xfem = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='EXTR',
+                       RESULTAT=res_xfem, NOM_CHAM='REAC_NODA', NUME_ORDRE=1)
+reac_sain = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='ASSE',
+                       MODELE=model_sain,
+                       ASSE=_F(TOUT='OUI', CHAM_GD=reac_xfem,
+                               NOM_CMP=('DX', 'DY', 'DZ')))
+res = CREA_RESU(reuse=res, RESULTAT=res, OPERATION='AFFE',
+                TYPE_RESU='EVOL_ELAS',
+                AFFE=_F(NOM_CHAM='REAC_NODA', CHAM_GD=reac_sain, INST=0.0,
+                        MODELE=model_sain))
+model = model_sain
+
+
+# =====================================================
+# 9. RESULTAAT-EXTRACTIE NAAR TABELLEN  (POST_RELEVE_T)
+# Gegenereerd door bridge_to_aster.py op basis van element-typen.
+# Verplaatsingen en reactiekrachten worden altijd geextraheerd.
+# tab_sigm / tab_vmis : 3D-elsets
+# tab_vmss / tab_vmsm / tab_vmsi : schalen, von Mises boven/midden/onder
+# tab_sipm            : balken (RECTANGLE / CERCLE), SIXXMIN / SIXXMAX
+# INTITULE is maximaal 16 tekens (Code-Aster kapt langere af).
+#
+# Aparte tabellen per veld zodat INTITULE (parts[0] in de parser)
+# het veld uniek identificeert in AsterToMecway_results()
+# in bridge_from_aster.py.
+# =====================================================
+#-- tabellen niet nodig (result_route='liml') --
+
+
+# =====================================================
+# 10. TABELLEN WEGSCHRIJVEN NAAR .resu  (IMPR_TABLE)
+# UNITE=8 -> 'F resu ... R 8' in study.export
+# Alleen de tabellen die in stap 9 zijn aangemaakt worden geschreven.
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.export_results(
+    res, '<WORKDIR>\\BR-10\\BR-10_verif_results.xml', '<WORKDIR>\\BR-10\\BR-10.liml',
+    extra_results=dict((k, globals()[k]) for k in
+                       ('res_sup', 'res_moy', 'res_inf',
+                        'res_flux', 'res_err')
+                       if k in globals()),
+    precision='double')
+
+
+# =====================================================
+# 11. EXPORT NAAR MED-FORMAAT (ParaView / Salome), alleen met de
+# instelling "med_export" (bridge_to_aster._build_impr_resu_block;
+# UNITE=80 -> 'F rmed ... R 80' in study.export). Mecway krijgt de
+# resultaten via de .liml of de tabellen, niet via een exportbestand.
+# =====================================================
+#-- geen MED-export (instelling med_export uit) --
+
+# =====================================================
+# BREUKMECHANICA XFEM (bridge_xfem.k_block): K en G langs het
+# front van elke #ASTER-XFEM-scheur, per front (NUME_FOND)
+# =====================================================
+
+def _bridge_xfem_fronts(fiss):
+    return max(1, len(fiss.getCrackTipMultiplicity()) // 2)
+
+
+def _bridge_xfem_csv(path, tables, columns):
+    import io
+    lines = [",".join(c[0] for c in columns)]
+    for key, front, t_g, t_pk in tables:
+        vg = t_g.EXTR_TABLE().values()
+        vpk = {}
+        if t_pk is not None:
+            vp = t_pk.EXTR_TABLE().values()
+            for i, num in enumerate(vp.get("NUM_PT", [])):
+                vpk[int(num)] = dict((k, vp[k][i]) for k in vp
+                                     if i < len(vp[k]))
+        size = max([abs(v) for c in ("COOR_X", "COOR_Y", "COOR_Z")
+                    for v in vg.get(c, []) if v is not None] + [1.0e-30])
+        for i, num in enumerate(vg.get("NUM_PT", [])):
+            pk = vpk.get(int(num), {})
+            if pk and any(abs((pk.get(c) or 0.0) - (vg[c][i] or 0.0)) >
+                          1.0e-6 * size for c in ("COOR_X", "COOR_Y",
+                                                  "COOR_Z")):
+                pk = {}
+            row = []
+            for n, (head, para) in enumerate(columns):
+                if head == "crack":
+                    v = key
+                elif head == "front":
+                    v = front
+                elif head.endswith("_POST_K"):
+                    v = pk.get(para)
+                else:
+                    v = vg.get(para, [None] * (i + 1))[i]
+                if v is None:
+                    row.append("")
+                elif isinstance(v, float):
+                    row.append("%.10g" % v)
+                else:
+                    row.append(str(v).strip())
+            lines.append(",".join(row))
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print("BRIDGE_XFEM_CSV " + path)
+
+_bridge_xfem_tabs = []
+# Scheur penny (CIRKEL)
+for _k in range(1, _bridge_xfem_fronts(fiss_1) + 1):
+    _tg = CALC_G_XFEM(RESULTAT=res_xfem, OPTION='CALC_K_G',
+                      THETA=_F(FISSURE=fiss_1, NUME_FOND=_k),
+                      LISSAGE=_F(LISSAGE_G='LEGENDRE', LISSAGE_THETA='LEGENDRE', DEGRE=5))
+    IMPR_TABLE(TABLE=_tg, UNITE=6)
+    # POST_K1_K2_K3 (extrapolatie van de sprong in de
+    # verplaatsing over de lippen) als controle; een fout hier
+    # stopt de tabel van CALC_G_XFEM niet
+    try:
+        _tp = POST_K1_K2_K3(RESULTAT=res_xfem, FISSURE=fiss_1, NUME_FOND=_k)
+        IMPR_TABLE(TABLE=_tp, UNITE=6)
+    except Exception as _e:
+        _tp = None
+        print('BRIDGE_XFEM_POSTK_FOUT penny/' + str(_k) + ' ' + str(_e).replace(chr(10), ' ')[:300])
+    _bridge_xfem_tabs.append(('penny', _k, _tg, _tp))
+_bridge_xfem_csv('<WORKDIR>\\BR-10\\BR-10_verif_xfem.csv', _bridge_xfem_tabs, [['crack', None], ['front', None], ['point', 'NUM_PT'], ['x', 'COOR_X'], ['y', 'COOR_Y'], ['z', 'COOR_Z'], ['s', 'ABSC_CURV'], ['G', 'G'], ['K1', 'K1'], ['K2', 'K2'], ['K3', 'K3'], ['G_IRWIN', 'G_IRWIN'], ['K1_POST_K', 'K1'], ['K2_POST_K', 'K2'], ['K3_POST_K', 'K3'], ['G_POST_K', 'G']])
+
+
+FIN()

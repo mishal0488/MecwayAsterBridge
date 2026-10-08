@@ -1,0 +1,60 @@
+<liml version="33">
+  <analysis type="S30" />
+  <node nid="1" x="0" y="100" z="100" />
+  <node nid="2" x="0" y="0" z="100" />
+  <node nid="3" x="100" y="0" z="100" />
+  <node nid="4" x="100" y="100" z="100" />
+  <node nid="5" x="0" y="100" z="0" />
+  <node nid="6" x="0" y="0" z="0" />
+  <node nid="7" x="100" y="0" z="0" />
+  <node nid="8" x="100" y="100" z="0" />
+  <node nid="9" x="-50" y="100" z="50" />
+  <node nid="10" x="-50" y="0" z="50" />
+  <node nid="11" x="50" y="-50" z="50" />
+  <elset name="VOLUME" material="Mat">
+    <elem eid="1" shape="tet4" nodes="2 6 11 10" />
+    <elem eid="2" shape="wedge6" nodes="5 1 9 6 2 10" />
+    <elem eid="3" shape="pyr5" nodes="2 6 7 3 11" />
+    <elem eid="4" shape="hex8" nodes="1 4 3 2 5 8 7 6" />
+  </elset>
+  <fixed selection="MURHEXA" />
+  <fixed selection="MURPENT" />
+  <surfacepressure selection="CHARTETR"><normal>13 Pa</normal></surfacepressure>
+  <surfacepressure selection="CHARPYRA"><normal>14 Pa</normal></surfacepressure>
+  <surfacepressure selection="CHARPENT"><normal>15 Pa</normal></surfacepressure>
+  <surfacepressure selection="CHARHEXA"><normal>16 Pa</normal></surfacepressure>
+  <mat name="Mat">
+    <mechanical type="Isotropic" youngsmodulus="400000 Pa" poissonratio="0.3" />
+  </mat>
+  <faceselection name="CHARPYRA">
+    <face eid="3" faceid="4" />
+  </faceselection>
+  <faceselection name="CHARTETR">
+    <face eid="1" faceid="4" />
+  </faceselection>
+  <faceselection name="LIBRE">
+    <face eid="3" faceid="3" />
+    <face eid="3" faceid="2" />
+    <face eid="1" faceid="3" />
+    <face eid="4" faceid="2" />
+    <face eid="2" faceid="5" />
+  </faceselection>
+  <faceselection name="MURPENT">
+    <face eid="2" faceid="1" />
+  </faceselection>
+  <faceselection name="MURHEXA">
+    <face eid="4" faceid="3" />
+  </faceselection>
+  <faceselection name="CHARPENT">
+    <face eid="2" faceid="4" />
+  </faceselection>
+  <faceselection name="CHARHEXA">
+    <face eid="4" faceid="1" />
+  </faceselection>
+  <faceselection name="LIBRE2">
+    <face eid="4" faceid="4" />
+  </faceselection>
+  <nodeselection name="MESURE">
+    <node nid="6" />
+  </nodeselection>
+</liml>

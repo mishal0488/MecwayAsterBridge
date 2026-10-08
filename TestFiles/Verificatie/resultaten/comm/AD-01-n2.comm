@@ -1,0 +1,423 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor MECA_STATIQUE (lineair-statische analyse).
+# Compatibel met Code-Aster v16 en v17.
+# Invulling via Python str.format() vanuit bridge_to_aster.py
+# (_build_lin_static).
+#
+# Placeholders (worden ingevuld door bridge_to_aster.py via str.format).
+# In dit bronbestand staan ze als naam tussen enkele accolades; in de
+# gegenereerde study.comm zijn ze vervangen door de werkelijke Code-Aster code:
+#
+#   defigroup_block   -> DEFI_GROUP (coupling-slaves, knoopgroepen per
+#                        richting, groepen voor tabellen), evt. CREA_MAILLAGE
+#                        en MODI_MAILLAGE ORIE_PEAU (of commentaar)
+#   model_block       -> AFFE_MODELE per elset (POU_D_E / DKT / COQUE_3D /
+#                        3D / DIS_T / DIS_TR)
+#   cara_elem_block   -> AFFE_CARA_ELEM balk-, schaal-, veer- en POI1-
+#                        eigenschappen (of commentaar)
+#   materials_block   -> DEFI_MATERIAU per materiaal (incl. RHO)
+#   fieldmat_block    -> AFFE_MATERIAU toewijzing
+#   loads_block       -> AFFE_CHAR_MECA's: load_1 met randvoorwaarden en
+#                        couplings, daarna een per belasting
+#   excit_clause      -> EXCIT met alle lasten
+#   cara_elem_ref     -> "    CARA_ELEM=cara,\n" of "" in MECA_STATIQUE
+#   solveur_ref       -> "    SOLVEUR=_F(METHODE=.., ..),\n    INFO=2,\n"
+#   calc_champ_block  -> CALC_CHAMP (+ POST_CHAMP voor schalen), velden
+#                        afhankelijk van element-typen
+#   postreleve_block  -> POST_RELEVE_T tabellen
+#   impr_table_block  -> IMPR_TABLE aanroepen
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# LETOP accolades in dit bronbestand:
+#   Code-Aster .comm-syntax gebruikt GEEN accolades, dus normaal hoeft
+#   er niets ge-escaped te worden. Voeg je ooit een accolade toe die
+#   GEEN placeholder is, verdubbel deze dan ({ of }) zodat str.format()
+#   er geen KeyError op gooit.
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH INLEZEN
+# FORMAT='ASTER': mesh rechtstreeks uit de .liml (bridge_mesh.py)
+# UNITE=20 komt overeen met 'F mail ... D 20' in study.export
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+# =====================================================
+# 2. STANDAARD GROEPEN AANMAKEN (alle elementen / knopen)
+# 'all_nodes' (afgeleid van 'all_elems') wordt door POST_RELEVE_T
+# gebruikt om alle knopen te exporteren naar het .resu-bestand.
+# DEFI_GROUP moet NA LIRE_MAILLAGE en VOOR AFFE_MODELE staan.
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+# =====================================================
+# 2b. KNOOPGROEPEN VOOR RANDVOORWAARDEN (en mesh-aanpassingen)
+# Gegenereerd door _build_defigroup_block() in bridge_to_aster.py:
+#   - CREA_GROUP_NO per coupling-slave op een faceselection
+#     (GROUP_MA=vlakgroep) en voor balktabellen; de Mecway-selecties
+#     zelf staan al als groep in het mesh (bridge_mesh.py)
+#   - CREA_MAILLAGE MODI_MAILLE (QUAD8_9 / TRIA6_7) voor COQUE_3D
+#   - MODI_MAILLAGE ORIE_PEAU voor drukvlakken op volume-elementen
+# Meerdere entries staan als tuple: CREA_GROUP_NO=(_F(...), _F(...),)
+# Is er niets van dit alles, dan staat hier:
+#   #-- not used in this analysis --
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_NO=(
+        _F(NOM='BRSY1', NOEUD=('N192', 'N193', 'N194', 'N195', 'N197', 'N199', 'N200', 'N202',
+            'N225', 'N226', 'N228', 'N229', 'N231', 'N253', 'N254', 'N256',
+            'N257', 'N259', 'N281', 'N282', 'N284', 'N285', 'N287',)),
+        _F(NOM='BRSY2', NOEUD=('N1', 'N2', 'N5', 'N6', 'N9', 'N13', 'N14', 'N17',
+            'N57', 'N59', 'N61', 'N64', 'N66', 'N90', 'N92', 'N94',
+            'N97', 'N99', 'N123', 'N125', 'N127', 'N130', 'N132', 'N288',
+            'N290', 'N292', 'N295', 'N297', 'N321', 'N323', 'N325', 'N328',
+            'N330', 'N354', 'N356', 'N358', 'N361', 'N363', 'N387', 'N389',
+            'N391', 'N394', 'N396',)),
+        _F(NOM='BRSY3', NOEUD=('N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8',
+            'N9', 'N10', 'N11', 'N12', 'N17', 'N18', 'N19', 'N20',
+            'N21', 'N22', 'N23', 'N24', 'N25', 'N26', 'N27', 'N30',
+            'N31', 'N32', 'N33', 'N34', 'N35', 'N36', 'N37', 'N38',
+            'N39', 'N42', 'N43', 'N44', 'N45', 'N46', 'N47', 'N48',
+            'N49', 'N50', 'N51', 'N54', 'N55', 'N56', 'N57', 'N58',
+            'N59', 'N60', 'N61', 'N62', 'N63', 'N66', 'N67', 'N68',
+            'N69', 'N70', 'N71', 'N72', 'N74', 'N75', 'N76', 'N77',
+            'N78', 'N79', 'N81', 'N82', 'N83', 'N84', 'N85', 'N86',
+            'N88', 'N89', 'N90', 'N91', 'N92', 'N93', 'N94', 'N95',
+            'N96', 'N99', 'N100', 'N101', 'N102', 'N103', 'N104', 'N105',
+            'N107', 'N108', 'N109', 'N110', 'N111', 'N112', 'N114', 'N115',
+            'N116', 'N117', 'N118', 'N119', 'N121', 'N122', 'N123', 'N124',
+            'N125', 'N126', 'N127', 'N128', 'N129', 'N132', 'N133', 'N134',
+            'N135', 'N136', 'N137', 'N138', 'N140', 'N141', 'N142', 'N143',
+            'N144', 'N145', 'N147', 'N148', 'N149', 'N150', 'N151', 'N152',
+            'N154', 'N155', 'N156', 'N157', 'N158', 'N159', 'N160', 'N161',
+            'N162', 'N165', 'N166', 'N167', 'N168', 'N169', 'N170', 'N171',
+            'N172', 'N173', 'N174', 'N177', 'N178', 'N179', 'N180', 'N181',
+            'N182', 'N183', 'N184', 'N185', 'N186', 'N189', 'N190', 'N191',
+            'N192', 'N193', 'N194', 'N195', 'N196', 'N197', 'N198', 'N201',
+            'N202', 'N203', 'N204', 'N205', 'N206', 'N207', 'N209', 'N210',
+            'N211', 'N212', 'N213', 'N214', 'N216', 'N217', 'N218', 'N219',
+            'N220', 'N221', 'N223', 'N224', 'N225', 'N226', 'N227', 'N228',
+            'N230', 'N231', 'N232', 'N233', 'N234', 'N235', 'N237', 'N238',
+            'N239', 'N240', 'N241', 'N242', 'N244', 'N245', 'N246', 'N247',
+            'N248', 'N249', 'N251', 'N252', 'N253', 'N254', 'N255', 'N256',
+            'N258', 'N259', 'N260', 'N261', 'N262', 'N263', 'N265', 'N266',
+            'N267', 'N268', 'N269', 'N270', 'N272', 'N273', 'N274', 'N275',
+            'N276', 'N277', 'N279', 'N280', 'N281', 'N282', 'N283', 'N284',
+            'N286', 'N287', 'N288', 'N289', 'N290', 'N291', 'N292', 'N293',
+            'N294', 'N297', 'N298', 'N299', 'N300', 'N301', 'N302', 'N303',
+            'N305', 'N306', 'N307', 'N308', 'N309', 'N310', 'N312', 'N313',
+            'N314', 'N315', 'N316', 'N317', 'N319', 'N320', 'N321', 'N322',
+            'N323', 'N324', 'N325', 'N326', 'N327', 'N330', 'N331', 'N332',
+            'N333', 'N334', 'N335', 'N336', 'N338', 'N339', 'N340', 'N341',
+            'N342', 'N343', 'N345', 'N346', 'N347', 'N348', 'N349', 'N350',
+            'N352', 'N353', 'N354', 'N355', 'N356', 'N357', 'N358', 'N359',
+            'N360', 'N363', 'N364', 'N365', 'N366', 'N367', 'N368', 'N369',
+            'N371', 'N372', 'N373', 'N374', 'N375', 'N376', 'N378', 'N379',
+            'N380', 'N381', 'N382', 'N383', 'N385', 'N386', 'N387', 'N388',
+            'N389', 'N390', 'N391', 'N392', 'N393', 'N396', 'N397', 'N398',
+            'N399', 'N400', 'N401', 'N402', 'N404', 'N405', 'N406', 'N407',
+            'N408', 'N409', 'N411', 'N412', 'N413', 'N414', 'N415', 'N416',
+            'N418', 'N419',)),
+    ),
+)
+
+mesh = MODI_MAILLAGE(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    ORIE_PEAU=_F(GROUP_MA_PEAU=('Trek', 'BRERRVRIJ',)),
+)
+
+
+# =====================================================
+# 3. MODEL DEFINITIE
+# Gegenereerd door bridge_to_aster.py op basis van elset-dimensies.
+# Per elset wordt de bijbehorende MODELISATION gekozen:
+#   1D (line2)              -> POU_D_E   (Euler-balk; alleen SEG2)
+#   2D lineair (tri3/quad4)       -> DKT
+#   2D kwadratisch (tri6/quad8)   -> COQUE_3D (na CREA_MAILLAGE MODI_MAILLE)
+#   veren (1D met veer-materiaal) -> DIS_T
+#   vlakken met druk (op volume)  -> 3D (randelementen)
+#   losse knopen (POI1)           -> DIS_T / DIS_TR (zie bridge_mesh.py)
+#   3D (hex/tet/wedge/...)  -> 3D
+# Zonder elsets, drukvlakken en POI1-knopen wordt TOUT='OUI',
+# MODELISATION='3D' gebruikt.
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Plaat', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='Trek', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='BRERRVRIJ', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+    ),
+)
+
+
+# =====================================================
+# 3b. SECTIE-EIGENSCHAPPEN (balken, schalen, veren)
+# Gegenereerd door bridge_to_aster.py op basis van Mecway <geometric>-data.
+#
+# POUTRE: balkdoorsneden (CERCLE, RECTANGLE, ...) per GROUP_MA
+#   Voorbeeld: _F(GROUP_MA='Beam1', SECTION='CERCLE', CARA=('R',), VALE=(0.005,))
+#   Balk-orientatie: balken met een eigen V-as in Mecway krijgen
+#   ORIENTATION CARA='VECT_Y' (model_data["beam_vect_y"]); zonder eigen
+#   orientatie zijn de standaarden van Mecway en Code-Aster gelijk.
+#
+# COQUE: plaat-/schaaldikten per GROUP_MA
+#   Voorbeeld: _F(GROUP_MA='Plate1', EPAIS=0.001)
+#
+# DISCRET: veer-elementen (DIS_T met K_T_D_L stijfheidsmatrix) en
+#          losse knopen (POI1, K_T_D_N / K_TR_D_N met stijfheid 0),
+#          elk met een aparte massa-entry 0 (M_T_D_L / M_T_D_N / M_TR_D_N)
+#   Voorbeeld: _F(GROUP_MA='Spring1', CARA='K_T_D_L', VALE=(4231.0, 0.0, 0.0))
+#
+# Zonder balk-, schaal- of veersecties en zonder POI1-knopen staat hier:
+#   #-- not used in this analysis --
+# =====================================================
+#-- not used in this analysis --
+
+
+# =====================================================
+# 4. MATERIAAL-DEFINITIE
+# Gegenereerd door bridge_to_aster.py op basis van Mecway-materialen.
+# Alle waarden in SI-eenheden (Pa, kg/m3, dimensieloos).
+# RHO wordt altijd opgenomen (default 0.0) voor compatibiliteit met
+# PESANTEUR.
+# Conceptnamen MAT_1, MAT_2, ... met de Mecway-naam als commentaar erboven.
+# Voorbeeld: MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=7850.0),)
+# =====================================================
+# materiaal 'Staal'
+MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=0.0),)
+
+
+# =====================================================
+# 5. MATERIAAL-TOEWIJZING
+# Koppelt materialen aan element-sets (GROUP_MA) of, bij afwezigheid
+# van elsets, het eerste materiaal aan alle elementen (TOUT='OUI').
+# DISCRET-elsets (veren) worden overgeslagen; hun eigenschappen staan
+# uitsluitend in AFFE_CARA_ELEM.
+# =====================================================
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Plaat', MATER=MAT_1),
+    ),
+)
+
+
+# =====================================================
+# 6. RANDVOORWAARDEN EN BELASTINGEN
+# Gegenereerd door bridge_to_aster.py vanuit model_data["bcs"] en
+# model_data["couplings"]. Ondersteunde Code-Aster keywords:
+#   DDL_IMPO       - inklemming, opgelegde verplaatsing/rotatie
+#   FORCE_NODALE   - puntkrachten
+#   PRES_REP       - oppervlaktedruk
+#   PESANTEUR      - zwaartekracht (vereist RHO in materiaal)
+#   LIAISON_SOLIDE - rigid body coupling (RBE2)
+#   LIAISON_RBE3   - distributing coupling (RBE3)
+# =====================================================
+load_1 = AFFE_CHAR_MECA(
+    MODELE=model,
+    LIAISON_OBLIQUE=(
+        _F(GROUP_NO='BRSY1', ANGL_NAUT=(0.0, -0.0, 0.0), DX=0.0),
+        _F(GROUP_NO='BRSY2', ANGL_NAUT=(90.0, -0.0, 0.0), DX=0.0),
+        _F(GROUP_NO='BRSY3', ANGL_NAUT=(0.0, -90.0, 0.0), DX=0.0),
+    ),
+)
+
+load_2 = AFFE_CHAR_MECA(
+    MODELE=model,
+    FORCE_FACE=_F(GROUP_MA='Trek', FX=100000000.0),
+)
+
+
+# =====================================================
+# 7. SOLVER: LINEAIR STATISCH
+# MECA_STATIQUE lost Ku=F op voor lineair elastisch gedrag.
+# CARA_ELEM=cara staat erin zodra stap 3b een AFFE_CARA_ELEM bevat
+# (balk-, schaal-, veersecties of POI1-knopen); anders weggelaten.
+# SOLVEUR (instelling "lin_solver"): MUMPS (direct) met NPREC uit
+# "solver_nprec" (Code-Aster-default 8) en RESI_RELA ("lin_solver_resi",
+# default 1e-6) als grens voor de geschatte fout op de oplossing; of GCPC
+# (iteratief, PRE_COND='LDLT_INC') met RESI_RELA als residu-criterium.
+# INFO=2: statistiek van de oplosser in de .mess (convergentiescherm).
+# =====================================================
+res = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    EXCIT=(
+        _F(CHARGE=load_1),
+        _F(CHARGE=load_2),
+    ),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8, RESI_RELA=1e-06),
+    INFO=2,
+)
+
+# =====================================================
+# 8. POST-PROCESSING VELDEN BEREKENEN  (CALC_CHAMP)
+# Gegenereerd door bridge_to_aster.py op basis van element-typen.
+#
+# REAC_NODA:
+#   Eigen aanroep zonder GROUP_MA (alle knopen); met elastic support
+#   zonder de veren (BRES*), zodat de veerkracht de reactie is.
+#
+# SIGM_NOEU / SIEQ_NOEU:
+#   Alleen op de 3D-elsets (GROUP_MA). Schaalspanningen hebben
+#   sub-punten (lagen) en passen niet in een NOEU-veld. Zonder
+#   3D-elsets (ook bij AFFE_MODELE TOUT='OUI') vervalt deze aanroep.
+#
+# Schalen (DKT / COQUE_3D):
+#   SIGM_ELNO -> POST_CHAMP EXTR_COQUE ('SUP', 'MOY' en 'INF')
+#   -> SIEQ_ELNO -> SIEQ_NOEU in res_sup / res_moy / res_inf.
+#
+# Balken (POU_D_E, doorsnede RECTANGLE of CERCLE):
+#   SIPM_ELNO = SIXXMIN / SIXXMAX in de doorsnede.
+#
+# Foutschatter (instelling error_estimator, alleen volume-elementen):
+#   eigen model, last en resultaat res_err, dan CALC_ERREUR ERME_ELEM /
+#   ERME_ELNO / ERME_NOEU; zie _error_estimator_block() en
+#   docs/Foutschatter.md.
+#
+# Zie _build_calc_champ_block() in bridge_to_aster.py.
+# =====================================================
+res = CALC_CHAMP(
+    reuse=res,
+    RESULTAT=res,
+    FORCE=('REAC_NODA', ),
+)
+
+# Spanningen per element-knoop voor Mecway (result_route 'liml').
+res = CALC_CHAMP(
+    reuse=res,
+    RESULTAT=res,
+    GROUP_MA=('Plaat',),
+    CONTRAINTE=('SIGM_ELNO', ),
+)
+res = CALC_CHAMP(
+    reuse=res,
+    RESULTAT=res,
+    GROUP_MA=('Plaat',),
+    CRITERES=('SIEQ_ELNO', ),
+)
+
+res = CALC_CHAMP(
+    reuse=res,
+    RESULTAT=res,
+    GROUP_MA=('Plaat',),
+    CONTRAINTE=('SIGM_NOEU', ),
+    CRITERES=('SIEQ_NOEU', ),
+)
+
+# Foutschatter (CALC_ERREUR, residu ERME; bridge 'error_estimator').
+# Eigen model (alleen volume-elementen en hun randvlakken), eigen
+# last (alle vlak- en volumelasten in een AFFE_CHAR_MECA, PRES_REP ~0
+# op de vrije vlakken) en eigen resultaat res_err met de
+# verplaatsingen van res.
+model_err = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Plaat', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='BRERRVRIJ', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='Trek', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+    ),
+)
+fieldmat_err = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model_err,
+    AFFE=(
+        _F(GROUP_MA='Plaat', MATER=MAT_1),
+    ),
+)
+load_err = AFFE_CHAR_MECA(
+    MODELE=model_err,
+    FORCE_FACE=_F(GROUP_MA='Trek', FX=-100000000.0),
+    PRES_REP=_F(GROUP_MA='BRERRVRIJ', PRES=1e-14),
+)
+u_all = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='EXTR',
+                   RESULTAT=res, NOM_CHAM='DEPL', NUME_ORDRE=1)
+u_err = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='ASSE',
+                   MODELE=model_err,
+                   ASSE=_F(TOUT='OUI', CHAM_GD=u_all,
+                           NOM_CMP=('DX', 'DY', 'DZ')))
+res_err = CREA_RESU(
+    OPERATION='AFFE',
+    TYPE_RESU='EVOL_ELAS',
+    AFFE=_F(NOM_CHAM='DEPL', CHAM_GD=u_err, MODELE=model_err,
+            CHAM_MATER=fieldmat_err, INST=0.0),
+)
+res_err = CALC_CHAMP(reuse=res_err, RESULTAT=res_err,
+                     CONTRAINTE=('SIGM_ELNO', ))
+res_err = CALC_ERREUR(
+    reuse=res_err,
+    RESULTAT=res_err,
+    OPTION=('ERME_ELEM', 'ERME_ELNO', 'ERME_NOEU'),
+    EXCIT=_F(CHARGE=load_err),
+)
+
+
+
+# =====================================================
+# 9. RESULTAAT-EXTRACTIE NAAR TABELLEN  (POST_RELEVE_T)
+# Gegenereerd door bridge_to_aster.py op basis van element-typen.
+# Verplaatsingen en reactiekrachten worden altijd geextraheerd.
+# tab_sigm / tab_vmis : 3D-elsets
+# tab_vmss / tab_vmsm / tab_vmsi : schalen, von Mises boven/midden/onder
+# tab_sipm            : balken (RECTANGLE / CERCLE), SIXXMIN / SIXXMAX
+# INTITULE is maximaal 16 tekens (Code-Aster kapt langere af).
+#
+# Aparte tabellen per veld zodat INTITULE (parts[0] in de parser)
+# het veld uniek identificeert in AsterToMecway_results()
+# in bridge_from_aster.py.
+# =====================================================
+#-- tabellen niet nodig (result_route='liml') --
+
+
+# =====================================================
+# 10. TABELLEN WEGSCHRIJVEN NAAR .resu  (IMPR_TABLE)
+# UNITE=8 -> 'F resu ... R 8' in study.export
+# Alleen de tabellen die in stap 9 zijn aangemaakt worden geschreven.
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.export_results(
+    res, '<WORKDIR>\\AD-01-n2\\AD-01-n2_verif_results.xml', '<WORKDIR>\\AD-01-n2\\AD-01-n2.liml',
+    extra_results=dict((k, globals()[k]) for k in
+                       ('res_sup', 'res_moy', 'res_inf',
+                        'res_flux', 'res_err')
+                       if k in globals()),
+    precision='double')
+
+
+# =====================================================
+# 11. EXPORT NAAR MED-FORMAAT (ParaView / Salome), alleen met de
+# instelling "med_export" (bridge_to_aster._build_impr_resu_block;
+# UNITE=80 -> 'F rmed ... R 80' in study.export). Mecway krijgt de
+# resultaten via de .liml of de tabellen, niet via een exportbestand.
+# =====================================================
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

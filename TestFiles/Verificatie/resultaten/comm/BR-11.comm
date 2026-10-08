@@ -1,0 +1,592 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor MECA_STATIQUE (lineair-statische analyse).
+# Compatibel met Code-Aster v16 en v17.
+# Invulling via Python str.format() vanuit bridge_to_aster.py
+# (_build_lin_static).
+#
+# Placeholders (worden ingevuld door bridge_to_aster.py via str.format).
+# In dit bronbestand staan ze als naam tussen enkele accolades; in de
+# gegenereerde study.comm zijn ze vervangen door de werkelijke Code-Aster code:
+#
+#   defigroup_block   -> DEFI_GROUP (coupling-slaves, knoopgroepen per
+#                        richting, groepen voor tabellen), evt. CREA_MAILLAGE
+#                        en MODI_MAILLAGE ORIE_PEAU (of commentaar)
+#   model_block       -> AFFE_MODELE per elset (POU_D_E / DKT / COQUE_3D /
+#                        3D / DIS_T / DIS_TR)
+#   cara_elem_block   -> AFFE_CARA_ELEM balk-, schaal-, veer- en POI1-
+#                        eigenschappen (of commentaar)
+#   materials_block   -> DEFI_MATERIAU per materiaal (incl. RHO)
+#   fieldmat_block    -> AFFE_MATERIAU toewijzing
+#   loads_block       -> AFFE_CHAR_MECA's: load_1 met randvoorwaarden en
+#                        couplings, daarna een per belasting
+#   excit_clause      -> EXCIT met alle lasten
+#   cara_elem_ref     -> "    CARA_ELEM=cara,\n" of "" in MECA_STATIQUE
+#   solveur_ref       -> "    SOLVEUR=_F(METHODE=.., ..),\n    INFO=2,\n"
+#   calc_champ_block  -> CALC_CHAMP (+ POST_CHAMP voor schalen), velden
+#                        afhankelijk van element-typen
+#   postreleve_block  -> POST_RELEVE_T tabellen
+#   impr_table_block  -> IMPR_TABLE aanroepen
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# LETOP accolades in dit bronbestand:
+#   Code-Aster .comm-syntax gebruikt GEEN accolades, dus normaal hoeft
+#   er niets ge-escaped te worden. Voeg je ooit een accolade toe die
+#   GEEN placeholder is, verdubbel deze dan ({ of }) zodat str.format()
+#   er geen KeyError op gooit.
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH INLEZEN
+# FORMAT='ASTER': mesh rechtstreeks uit de .liml (bridge_mesh.py)
+# UNITE=20 komt overeen met 'F mail ... D 20' in study.export
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+# =====================================================
+# 2. STANDAARD GROEPEN AANMAKEN (alle elementen / knopen)
+# 'all_nodes' (afgeleid van 'all_elems') wordt door POST_RELEVE_T
+# gebruikt om alle knopen te exporteren naar het .resu-bestand.
+# DEFI_GROUP moet NA LIRE_MAILLAGE en VOOR AFFE_MODELE staan.
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+# =====================================================
+# 2b. KNOOPGROEPEN VOOR RANDVOORWAARDEN (en mesh-aanpassingen)
+# Gegenereerd door _build_defigroup_block() in bridge_to_aster.py:
+#   - CREA_GROUP_NO per coupling-slave op een faceselection
+#     (GROUP_MA=vlakgroep) en voor balktabellen; de Mecway-selecties
+#     zelf staan al als groep in het mesh (bridge_mesh.py)
+#   - CREA_MAILLAGE MODI_MAILLE (QUAD8_9 / TRIA6_7) voor COQUE_3D
+#   - MODI_MAILLAGE ORIE_PEAU voor drukvlakken op volume-elementen
+# Meerdere entries staan als tuple: CREA_GROUP_NO=(_F(...), _F(...),)
+# Is er niets van dit alles, dan staat hier:
+#   #-- not used in this analysis --
+# =====================================================
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_NO=(
+        _F(NOM='BRSY1', NOEUD=('N1', 'N2', 'N5', 'N6', 'N9', 'N10', 'N11', 'N17',
+            'N18', 'N19', 'N25', 'N26', 'N35', 'N36', 'N37', 'N47',
+            'N48', 'N50', 'N51', 'N53', 'N63', 'N64', 'N66', 'N67',
+            'N69', 'N88', 'N90', 'N102', 'N105', 'N116', 'N119', 'N144',
+            'N147', 'N148', 'N149', 'N151', 'N157', 'N158', 'N167', 'N168',
+            'N169', 'N177', 'N178', 'N179', 'N187', 'N188', 'N192', 'N193',
+            'N242', 'N243', 'N250', 'N251', 'N256', 'N259', 'N324', 'N329',
+            'N330', 'N331', 'N332', 'N333', 'N338', 'N339', 'N343', 'N353',
+            'N366', 'N367', 'N368', 'N369', 'N370', 'N371', 'N392', 'N393',
+            'N394', 'N395', 'N396', 'N397', 'N474', 'N475', 'N476', 'N477',
+            'N495', 'N496', 'N497', 'N498', 'N604', 'N605', 'N606', 'N608',
+            'N615', 'N617', 'N619', 'N620', 'N629', 'N631', 'N641', 'N642',
+            'N643', 'N644', 'N647', 'N648', 'N655', 'N658', 'N668', 'N670',
+            'N681', 'N682', 'N687', 'N688', 'N689', 'N690', 'N695', 'N696',
+            'N697', 'N698', 'N715', 'N716', 'N719', 'N720', 'N755', 'N762',
+            'N763', 'N764', 'N765', 'N766', 'N767', 'N768', 'N771', 'N772',
+            'N785', 'N786', 'N794', 'N795', 'N796', 'N797', 'N798', 'N820',
+            'N821', 'N822', 'N823', 'N824', 'N879', 'N880', 'N881', 'N882',
+            'N883', 'N884', 'N885', 'N886', 'N887', 'N888', 'N929', 'N930',
+            'N931', 'N932', 'N933', 'N934', 'N935', 'N936', 'N937', 'N938',
+            'N1149', 'N1151', 'N1160', 'N1164', 'N1179', 'N1180', 'N1183', 'N1184',
+            'N1208', 'N1209', 'N1210', 'N1214', 'N1215', 'N1216', 'N1273', 'N1274',
+            'N1275', 'N1276', 'N1277', 'N1278', 'N1279', 'N1280', 'N1317', 'N1318',
+            'N1319', 'N1320', 'N1321', 'N1322', 'N1323', 'N1324', 'N1687', 'N1688',
+            'N1691', 'N1692', 'N1703', 'N1704', 'N1707', 'N1708', 'N1751', 'N1752',
+            'N1753', 'N1754', 'N1755', 'N1756', 'N1760', 'N1761', 'N1762', 'N1778',
+            'N1779', 'N1780', 'N1784', 'N1785', 'N1786', 'N1808', 'N1809', 'N1810',
+            'N1838', 'N1839', 'N1840', 'N1841', 'N1842', 'N1843', 'N1844', 'N1845',
+            'N1846', 'N1886', 'N1887', 'N1888', 'N1889', 'N1890', 'N1891', 'N1892',
+            'N1893', 'N1894', 'N2101', 'N2102', 'N2103', 'N2104', 'N2105', 'N2106',
+            'N2107', 'N2108', 'N2109', 'N2110', 'N2111', 'N2112', 'N2113', 'N2114',
+            'N2115', 'N2116', 'N2117', 'N2118', 'N2119', 'N2120', 'N2209', 'N2210',
+            'N2211', 'N2212', 'N2213', 'N2214', 'N2215', 'N2216', 'N2217', 'N2218',
+            'N2219', 'N2220', 'N2221', 'N2222', 'N2223', 'N2224', 'N2225', 'N2226',
+            'N2227', 'N2228', 'N3091', 'N3092', 'N3095', 'N3096', 'N3163', 'N3164',
+            'N3165', 'N3166', 'N3167', 'N3168', 'N3169', 'N3170', 'N3171', 'N3172',
+            'N3173', 'N3174', 'N3175', 'N3176', 'N3177', 'N3178', 'N3256', 'N3257',
+            'N3258', 'N3259', 'N3260', 'N3261', 'N3262', 'N3263', 'N3264', 'N3265',
+            'N3266', 'N3267', 'N3268', 'N3269', 'N3270', 'N3271', 'N4652', 'N4653',
+            'N4662', 'N4663', 'N4672', 'N4673', 'N4675', 'N4677', 'N4696', 'N4697',
+            'N4701', 'N4702', 'N4703', 'N4709', 'N4710', 'N4711', 'N4763', 'N4771',
+            'N4772', 'N4773', 'N4791', 'N4792', 'N4793', 'N4837', 'N4853', 'N5021',
+            'N5022', 'N5023', 'N5024', 'N5025', 'N5026', 'N5027', 'N5028', 'N5029',
+            'N5030', 'N5031', 'N5037', 'N5038', 'N5039', 'N5040', 'N5041', 'N5067',
+            'N5068', 'N5069', 'N5070', 'N5071', 'N5076', 'N5077', 'N5078', 'N5079',
+            'N5118', 'N5119', 'N5120', 'N5121', 'N5162', 'N5163', 'N5164', 'N5165',
+            'N5166', 'N5167', 'N5168', 'N5169', 'N5170', 'N5171', 'N5172', 'N5173',
+            'N5174', 'N5175', 'N5244', 'N5245', 'N5246', 'N5247', 'N5248', 'N5249',
+            'N5250', 'N5251', 'N5252', 'N5253', 'N5254', 'N5255', 'N5256', 'N5257',
+            'N5560', 'N5561', 'N5562', 'N5563', 'N5564', 'N5565', 'N5566', 'N5567',
+            'N5568', 'N5569', 'N5570', 'N5571', 'N5572', 'N5573', 'N5574', 'N5575',
+            'N5576', 'N5577', 'N5578', 'N5579', 'N5580', 'N5581', 'N5582', 'N5583',
+            'N5730', 'N5731', 'N5732', 'N5733', 'N5734', 'N5735', 'N5736', 'N5737',
+            'N5738', 'N5739', 'N5740', 'N5741', 'N5742', 'N5743', 'N5744', 'N5745',
+            'N5746', 'N5747', 'N5748', 'N5749', 'N5750', 'N5751', 'N5752', 'N5753',
+            'N6782', 'N6783', 'N6784', 'N6785', 'N6790', 'N6791', 'N6792', 'N6793',
+            'N6864', 'N6865', 'N6866', 'N6867', 'N6868', 'N6869', 'N6870', 'N6871',
+            'N6872', 'N6873', 'N6874', 'N6875', 'N6876', 'N6877', 'N6878', 'N6879',
+            'N6880', 'N6881', 'N6882', 'N6883', 'N6884', 'N6885', 'N6886', 'N6887',
+            'N6888', 'N6889', 'N6890', 'N6891', 'N6892', 'N6893', 'N6894', 'N6895',
+            'N6896', 'N6897', 'N6898', 'N6899', 'N6900', 'N6901', 'N6902', 'N6903',
+            'N6904', 'N6905', 'N6906', 'N6907', 'N6908', 'N6909', 'N6910', 'N6911',
+            'N6912', 'N6913', 'N6914', 'N6915', 'N6916', 'N6917', 'N7208', 'N7209',
+            'N7210', 'N7211', 'N7212', 'N7213', 'N7214', 'N7215', 'N7216', 'N7217',
+            'N7218', 'N7219', 'N7220', 'N7221', 'N7222', 'N7223', 'N7224', 'N7225',
+            'N7226', 'N7227', 'N7228', 'N7229', 'N7230', 'N7231', 'N7232', 'N7233',
+            'N7234', 'N7235', 'N7236', 'N7237', 'N7238', 'N7239', 'N7240', 'N7241',
+            'N7242', 'N7243', 'N7244', 'N7245', 'N7246', 'N7247', 'N7248', 'N7249',
+            'N7250', 'N7251', 'N7252', 'N7253', 'N7254', 'N7255', 'N7256', 'N7257',
+            'N7258', 'N7259', 'N7260', 'N7261', 'N12235', 'N12236', 'N12247', 'N12249',
+            'N12270', 'N12271', 'N12276', 'N12277', 'N12330', 'N12331', 'N12350', 'N12351',
+            'N12552', 'N12553', 'N12556', 'N12557', 'N12614', 'N12615', 'N12616', 'N12617',
+            'N12618', 'N12619', 'N12620', 'N12621', 'N12622', 'N12623', 'N12624', 'N12625',
+            'N12626', 'N12627', 'N12628', 'N12629', 'N12630', 'N12631', 'N12632', 'N12633',
+            'N12634', 'N12635', 'N12636', 'N12637', 'N12638', 'N12639', 'N12640', 'N12641',
+            'N12642', 'N12643', 'N12644', 'N12645', 'N12646', 'N12647', 'N12648', 'N12649',
+            'N12650', 'N12651', 'N12652', 'N12653', 'N12654', 'N12655', 'N12656', 'N12657',
+            'N12658', 'N12659', 'N12660', 'N12661', 'N12936', 'N12937', 'N12938', 'N12939',
+            'N12940', 'N12941', 'N12942', 'N12943', 'N12944', 'N12945', 'N12946', 'N12947',
+            'N12948', 'N12949', 'N12950', 'N12951', 'N12952', 'N12953', 'N12954', 'N12955',
+            'N12956', 'N12957', 'N12958', 'N12959', 'N12960', 'N12961', 'N12962', 'N12963',
+            'N12964', 'N12965', 'N12966', 'N12967', 'N12968', 'N12969', 'N12970', 'N12971',
+            'N12972', 'N12973', 'N12974', 'N12975', 'N12976', 'N12977', 'N12978', 'N12979',
+            'N12980', 'N12981', 'N12982', 'N12983', 'N21365', 'N21367', 'N21383', 'N21384',
+            'N21385', 'N21399', 'N21400', 'N21401', 'N21773', 'N21775',)),
+        _F(NOM='BRSY2', NOEUD=('N1', 'N2', 'N3', 'N4', 'N9', 'N10', 'N11', 'N12',
+            'N13', 'N14', 'N15', 'N16', 'N29', 'N30', 'N31', 'N46',
+            'N47', 'N49', 'N50', 'N52', 'N54', 'N55', 'N57', 'N58',
+            'N60', 'N78', 'N80', 'N100', 'N103', 'N107', 'N110', 'N144',
+            'N145', 'N146', 'N147', 'N150', 'N152', 'N153', 'N164', 'N165',
+            'N166', 'N170', 'N171', 'N172', 'N180', 'N181', 'N182', 'N183',
+            'N240', 'N241', 'N244', 'N245', 'N252', 'N253', 'N324', 'N325',
+            'N326', 'N327', 'N328', 'N329', 'N334', 'N335', 'N342', 'N344',
+            'N360', 'N361', 'N362', 'N363', 'N364', 'N365', 'N372', 'N373',
+            'N374', 'N375', 'N376', 'N377', 'N470', 'N471', 'N472', 'N473',
+            'N478', 'N479', 'N480', 'N481', 'N603', 'N604', 'N606', 'N607',
+            'N609', 'N610', 'N612', 'N613', 'N621', 'N623', 'N639', 'N640',
+            'N641', 'N644', 'N645', 'N646', 'N649', 'N652', 'N663', 'N669',
+            'N681', 'N682', 'N683', 'N684', 'N685', 'N686', 'N691', 'N692',
+            'N693', 'N694', 'N713', 'N714', 'N717', 'N718', 'N755', 'N756',
+            'N757', 'N758', 'N759', 'N760', 'N761', 'N762', 'N769', 'N770',
+            'N773', 'N774', 'N789', 'N790', 'N791', 'N792', 'N793', 'N799',
+            'N800', 'N801', 'N802', 'N803', 'N869', 'N870', 'N871', 'N872',
+            'N873', 'N874', 'N875', 'N876', 'N877', 'N878', 'N889', 'N890',
+            'N891', 'N892', 'N893', 'N894', 'N895', 'N896', 'N897', 'N898',
+            'N1147', 'N1150', 'N1153', 'N1156', 'N1173', 'N1174', 'N1181', 'N1182',
+            'N1205', 'N1206', 'N1207', 'N1211', 'N1212', 'N1213', 'N1265', 'N1266',
+            'N1267', 'N1268', 'N1269', 'N1270', 'N1271', 'N1272', 'N1281', 'N1282',
+            'N1283', 'N1284', 'N1285', 'N1286', 'N1287', 'N1288', 'N1685', 'N1686',
+            'N1689', 'N1690', 'N1701', 'N1702', 'N1705', 'N1706', 'N1745', 'N1746',
+            'N1747', 'N1748', 'N1749', 'N1750', 'N1757', 'N1758', 'N1759', 'N1763',
+            'N1764', 'N1765', 'N1781', 'N1782', 'N1783', 'N1787', 'N1788', 'N1789',
+            'N1829', 'N1830', 'N1831', 'N1832', 'N1833', 'N1834', 'N1835', 'N1836',
+            'N1837', 'N1847', 'N1848', 'N1849', 'N1850', 'N1851', 'N1852', 'N1853',
+            'N1854', 'N1855', 'N2081', 'N2082', 'N2083', 'N2084', 'N2085', 'N2086',
+            'N2087', 'N2088', 'N2089', 'N2090', 'N2091', 'N2092', 'N2093', 'N2094',
+            'N2095', 'N2096', 'N2097', 'N2098', 'N2099', 'N2100', 'N2121', 'N2122',
+            'N2123', 'N2124', 'N2125', 'N2126', 'N2127', 'N2128', 'N2129', 'N2130',
+            'N2131', 'N2132', 'N2133', 'N2134', 'N2135', 'N2136', 'N2137', 'N2138',
+            'N2139', 'N2140', 'N3089', 'N3090', 'N3093', 'N3094', 'N3147', 'N3148',
+            'N3149', 'N3150', 'N3151', 'N3152', 'N3153', 'N3154', 'N3155', 'N3156',
+            'N3157', 'N3158', 'N3159', 'N3160', 'N3161', 'N3162', 'N3179', 'N3180',
+            'N3181', 'N3182', 'N3183', 'N3184', 'N3185', 'N3186', 'N3187', 'N3188',
+            'N3189', 'N3190', 'N3191', 'N3192', 'N3193', 'N3194', 'N4650', 'N4651',
+            'N4654', 'N4657', 'N4670', 'N4671', 'N4674', 'N4676', 'N4696', 'N4697',
+            'N4698', 'N4699', 'N4700', 'N4704', 'N4705', 'N4706', 'N4762', 'N4768',
+            'N4769', 'N4770', 'N4774', 'N4775', 'N4776', 'N4836', 'N4838', 'N5010',
+            'N5011', 'N5012', 'N5013', 'N5014', 'N5015', 'N5016', 'N5017', 'N5018',
+            'N5019', 'N5020', 'N5032', 'N5033', 'N5034', 'N5035', 'N5036', 'N5042',
+            'N5043', 'N5044', 'N5045', 'N5046', 'N5072', 'N5073', 'N5074', 'N5075',
+            'N5080', 'N5081', 'N5082', 'N5083', 'N5148', 'N5149', 'N5150', 'N5151',
+            'N5152', 'N5153', 'N5154', 'N5155', 'N5156', 'N5157', 'N5158', 'N5159',
+            'N5160', 'N5161', 'N5176', 'N5177', 'N5178', 'N5179', 'N5180', 'N5181',
+            'N5182', 'N5183', 'N5184', 'N5185', 'N5186', 'N5187', 'N5188', 'N5189',
+            'N5536', 'N5537', 'N5538', 'N5539', 'N5540', 'N5541', 'N5542', 'N5543',
+            'N5544', 'N5545', 'N5546', 'N5547', 'N5548', 'N5549', 'N5550', 'N5551',
+            'N5552', 'N5553', 'N5554', 'N5555', 'N5556', 'N5557', 'N5558', 'N5559',
+            'N5584', 'N5585', 'N5586', 'N5587', 'N5588', 'N5589', 'N5590', 'N5591',
+            'N5592', 'N5593', 'N5594', 'N5595', 'N5596', 'N5597', 'N5598', 'N5599',
+            'N5600', 'N5601', 'N5602', 'N5603', 'N5604', 'N5605', 'N5606', 'N5607',
+            'N6778', 'N6779', 'N6780', 'N6781', 'N6786', 'N6787', 'N6788', 'N6789',
+            'N6810', 'N6811', 'N6812', 'N6813', 'N6814', 'N6815', 'N6816', 'N6817',
+            'N6818', 'N6819', 'N6820', 'N6821', 'N6822', 'N6823', 'N6824', 'N6825',
+            'N6826', 'N6827', 'N6828', 'N6829', 'N6830', 'N6831', 'N6832', 'N6833',
+            'N6834', 'N6835', 'N6836', 'N6837', 'N6838', 'N6839', 'N6840', 'N6841',
+            'N6842', 'N6843', 'N6844', 'N6845', 'N6846', 'N6847', 'N6848', 'N6849',
+            'N6850', 'N6851', 'N6852', 'N6853', 'N6854', 'N6855', 'N6856', 'N6857',
+            'N6858', 'N6859', 'N6860', 'N6861', 'N6862', 'N6863', 'N6918', 'N6919',
+            'N6920', 'N6921', 'N6922', 'N6923', 'N6924', 'N6925', 'N6926', 'N6927',
+            'N6928', 'N6929', 'N6930', 'N6931', 'N6932', 'N6933', 'N6934', 'N6935',
+            'N6936', 'N6937', 'N6938', 'N6939', 'N6940', 'N6941', 'N6942', 'N6943',
+            'N6944', 'N6945', 'N6946', 'N6947', 'N6948', 'N6949', 'N6950', 'N6951',
+            'N6952', 'N6953', 'N6954', 'N6955', 'N6956', 'N6957', 'N6958', 'N6959',
+            'N6960', 'N6961', 'N6962', 'N6963', 'N6964', 'N6965', 'N6966', 'N6967',
+            'N6968', 'N6969', 'N6970', 'N6971', 'N12230', 'N12232', 'N12246', 'N12248',
+            'N12268', 'N12269', 'N12272', 'N12273', 'N12328', 'N12329', 'N12332', 'N12333',
+            'N12550', 'N12551', 'N12554', 'N12555', 'N12566', 'N12567', 'N12568', 'N12569',
+            'N12570', 'N12571', 'N12572', 'N12573', 'N12574', 'N12575', 'N12576', 'N12577',
+            'N12578', 'N12579', 'N12580', 'N12581', 'N12582', 'N12583', 'N12584', 'N12585',
+            'N12586', 'N12587', 'N12588', 'N12589', 'N12590', 'N12591', 'N12592', 'N12593',
+            'N12594', 'N12595', 'N12596', 'N12597', 'N12598', 'N12599', 'N12600', 'N12601',
+            'N12602', 'N12603', 'N12604', 'N12605', 'N12606', 'N12607', 'N12608', 'N12609',
+            'N12610', 'N12611', 'N12612', 'N12613', 'N12662', 'N12663', 'N12664', 'N12665',
+            'N12666', 'N12667', 'N12668', 'N12669', 'N12670', 'N12671', 'N12672', 'N12673',
+            'N12674', 'N12675', 'N12676', 'N12677', 'N12678', 'N12679', 'N12680', 'N12681',
+            'N12682', 'N12683', 'N12684', 'N12685', 'N12686', 'N12687', 'N12688', 'N12689',
+            'N12690', 'N12691', 'N12692', 'N12693', 'N12694', 'N12695', 'N12696', 'N12697',
+            'N12698', 'N12699', 'N12700', 'N12701', 'N12702', 'N12703', 'N12704', 'N12705',
+            'N12706', 'N12707', 'N12708', 'N12709', 'N21364', 'N21366', 'N21380', 'N21381',
+            'N21382', 'N21386', 'N21387', 'N21388', 'N21772', 'N21774',)),
+    ),
+)
+
+mesh = MODI_MAILLAGE(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    ORIE_PEAU=_F(GROUP_MA_PEAU=('FACE_SUP', 'FACE_INF', 'BRERRVRIJ',)),
+)
+
+
+# =====================================================
+# 3. MODEL DEFINITIE
+# Gegenereerd door bridge_to_aster.py op basis van elset-dimensies.
+# Per elset wordt de bijbehorende MODELISATION gekozen:
+#   1D (line2)              -> POU_D_E   (Euler-balk; alleen SEG2)
+#   2D lineair (tri3/quad4)       -> DKT
+#   2D kwadratisch (tri6/quad8)   -> COQUE_3D (na CREA_MAILLAGE MODI_MAILLE)
+#   veren (1D met veer-materiaal) -> DIS_T
+#   vlakken met druk (op volume)  -> 3D (randelementen)
+#   losse knopen (POI1)           -> DIS_T / DIS_TR (zie bridge_mesh.py)
+#   3D (hex/tet/wedge/...)  -> 3D
+# Zonder elsets, drukvlakken en POI1-knopen wordt TOUT='OUI',
+# MODELISATION='3D' gebruikt.
+# =====================================================
+model_sain = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Blok', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='FACE_SUP', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='FACE_INF', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+        _F(GROUP_MA='BRERRVRIJ', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+    ),
+)
+
+# =====================================================
+# XFEM-SCHEUREN (bridge: #ASTER-XFEM, bridge_xfem.py,
+# docs/Breukmechanica.md par. 7): levelsets in het gezonde
+# model, daarna het XFEM-model 'model' voor lasten en solve
+# =====================================================
+# Scheur 1: vorm=ELLIPSE, centrum=(0, 0, 0), a=2, b=2, vect_x=(1, 0, 0), vect_y=(0, 1, 0), glad=LAGRANGE, punten=20
+fiss_1 = DEFI_FISS_XFEM(
+    MAILLAGE=mesh,
+    TYPE_DISCONTINUITE='FISSURE',
+    DEFI_FISS=_F(FORM_FISS='ELLIPSE', DEMI_GRAND_AXE=2.0, DEMI_PETIT_AXE=2.0,
+                     CENTRE=(0.0, 0.0, 0.0), VECT_X=(1.0, 0.0, 0.0),
+                     VECT_Y=(0.0, 1.0, 0.0)),
+)
+model = MODI_MODELE_XFEM(MODELE_IN=model_sain, FISSURE=(fiss_1,))
+
+
+# =====================================================
+# 3b. SECTIE-EIGENSCHAPPEN (balken, schalen, veren)
+# Gegenereerd door bridge_to_aster.py op basis van Mecway <geometric>-data.
+#
+# POUTRE: balkdoorsneden (CERCLE, RECTANGLE, ...) per GROUP_MA
+#   Voorbeeld: _F(GROUP_MA='Beam1', SECTION='CERCLE', CARA=('R',), VALE=(0.005,))
+#   Balk-orientatie: balken met een eigen V-as in Mecway krijgen
+#   ORIENTATION CARA='VECT_Y' (model_data["beam_vect_y"]); zonder eigen
+#   orientatie zijn de standaarden van Mecway en Code-Aster gelijk.
+#
+# COQUE: plaat-/schaaldikten per GROUP_MA
+#   Voorbeeld: _F(GROUP_MA='Plate1', EPAIS=0.001)
+#
+# DISCRET: veer-elementen (DIS_T met K_T_D_L stijfheidsmatrix) en
+#          losse knopen (POI1, K_T_D_N / K_TR_D_N met stijfheid 0),
+#          elk met een aparte massa-entry 0 (M_T_D_L / M_T_D_N / M_TR_D_N)
+#   Voorbeeld: _F(GROUP_MA='Spring1', CARA='K_T_D_L', VALE=(4231.0, 0.0, 0.0))
+#
+# Zonder balk-, schaal- of veersecties en zonder POI1-knopen staat hier:
+#   #-- not used in this analysis --
+# =====================================================
+#-- not used in this analysis --
+
+
+# =====================================================
+# 4. MATERIAAL-DEFINITIE
+# Gegenereerd door bridge_to_aster.py op basis van Mecway-materialen.
+# Alle waarden in SI-eenheden (Pa, kg/m3, dimensieloos).
+# RHO wordt altijd opgenomen (default 0.0) voor compatibiliteit met
+# PESANTEUR.
+# Conceptnamen MAT_1, MAT_2, ... met de Mecway-naam als commentaar erboven.
+# Voorbeeld: MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=7850.0),)
+# =====================================================
+# materiaal 'Staal'
+MAT_1 = DEFI_MATERIAU(ELAS=_F(E=200000000000.0, NU=0.3, RHO=0.0),)
+
+
+# =====================================================
+# 5. MATERIAAL-TOEWIJZING
+# Koppelt materialen aan element-sets (GROUP_MA) of, bij afwezigheid
+# van elsets, het eerste materiaal aan alle elementen (TOUT='OUI').
+# DISCRET-elsets (veren) worden overgeslagen; hun eigenschappen staan
+# uitsluitend in AFFE_CARA_ELEM.
+# =====================================================
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Blok', MATER=MAT_1),
+    ),
+)
+
+
+# =====================================================
+# 6. RANDVOORWAARDEN EN BELASTINGEN
+# Gegenereerd door bridge_to_aster.py vanuit model_data["bcs"] en
+# model_data["couplings"]. Ondersteunde Code-Aster keywords:
+#   DDL_IMPO       - inklemming, opgelegde verplaatsing/rotatie
+#   FORCE_NODALE   - puntkrachten
+#   PRES_REP       - oppervlaktedruk
+#   PESANTEUR      - zwaartekracht (vereist RHO in materiaal)
+#   LIAISON_SOLIDE - rigid body coupling (RBE2)
+#   LIAISON_RBE3   - distributing coupling (RBE3)
+# =====================================================
+load_1 = AFFE_CHAR_MECA(
+    MODELE=model,
+    DDL_IMPO=(
+        _F(GROUP_NO='BRSY1', DY=0.0),
+        _F(GROUP_NO='BRSY2', DX=0.0),
+        _F(GROUP_NO='D', DZ=0.0),
+    ),
+)
+
+load_2 = AFFE_CHAR_MECA(
+    MODELE=model,
+    PRES_REP=_F(GROUP_MA='FACE_SUP', PRES=-1000000.0),
+)
+
+load_3 = AFFE_CHAR_MECA(
+    MODELE=model,
+    PRES_REP=_F(GROUP_MA='FACE_INF', PRES=-1000000.0),
+)
+
+
+# =====================================================
+# 7. SOLVER: LINEAIR STATISCH
+# MECA_STATIQUE lost Ku=F op voor lineair elastisch gedrag.
+# CARA_ELEM=cara staat erin zodra stap 3b een AFFE_CARA_ELEM bevat
+# (balk-, schaal-, veersecties of POI1-knopen); anders weggelaten.
+# SOLVEUR (instelling "lin_solver"): MUMPS (direct) met NPREC uit
+# "solver_nprec" (Code-Aster-default 8) en RESI_RELA ("lin_solver_resi",
+# default 1e-6) als grens voor de geschatte fout op de oplossing; of GCPC
+# (iteratief, PRE_COND='LDLT_INC') met RESI_RELA als residu-criterium.
+# INFO=2: statistiek van de oplosser in de .mess (convergentiescherm).
+# =====================================================
+res = MECA_STATIQUE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    EXCIT=(
+        _F(CHARGE=load_1),
+        _F(CHARGE=load_2),
+        _F(CHARGE=load_3),
+    ),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8, RESI_RELA=1e-06),
+    INFO=2,
+)
+
+# =====================================================
+# 8. POST-PROCESSING VELDEN BEREKENEN  (CALC_CHAMP)
+# Gegenereerd door bridge_to_aster.py op basis van element-typen.
+#
+# REAC_NODA:
+#   Eigen aanroep zonder GROUP_MA (alle knopen); met elastic support
+#   zonder de veren (BRES*), zodat de veerkracht de reactie is.
+#
+# SIGM_NOEU / SIEQ_NOEU:
+#   Alleen op de 3D-elsets (GROUP_MA). Schaalspanningen hebben
+#   sub-punten (lagen) en passen niet in een NOEU-veld. Zonder
+#   3D-elsets (ook bij AFFE_MODELE TOUT='OUI') vervalt deze aanroep.
+#
+# Schalen (DKT / COQUE_3D):
+#   SIGM_ELNO -> POST_CHAMP EXTR_COQUE ('SUP', 'MOY' en 'INF')
+#   -> SIEQ_ELNO -> SIEQ_NOEU in res_sup / res_moy / res_inf.
+#
+# Balken (POU_D_E, doorsnede RECTANGLE of CERCLE):
+#   SIPM_ELNO = SIXXMIN / SIXXMAX in de doorsnede.
+#
+# Foutschatter (instelling error_estimator, alleen volume-elementen):
+#   eigen model, last en resultaat res_err, dan CALC_ERREUR ERME_ELEM /
+#   ERME_ELNO / ERME_NOEU; zie _error_estimator_block() en
+#   docs/Foutschatter.md.
+#
+# Zie _build_calc_champ_block() in bridge_to_aster.py.
+# =====================================================
+
+# =====================================================
+# XFEM: resultaten op het oorspronkelijke mesh (bridge_xfem.result_block)
+# De verplaatsing van het XFEM-model heeft extra vrijheidsgraden (H1X..,
+# K1..) en is op een knoop van een gesneden element niet de fysische
+# verplaatsing. POST_MAIL_XFEM maakt een mesh dat de scheur volgt,
+# POST_CHAM_XFEM zet DEPL en SIEF_ELGA daarop; elke knoop van het
+# oorspronkelijke mesh is een knoop van dat mesh, dus PROJ_CHAMP
+# COLLOCATION geeft de waarde aan de eigen kant van de scheur. Het
+# hulpmodel krijgt alleen de volume-elsets (het mesh van POST_MAIL_XFEM houdt
+# de groepen; zijn frontcellen en randen zonder volume gaven alarm
+# MODELE1_63). REAC_NODA komt uit het XFEM-resultaat (DX, DY, DZ).
+# =====================================================
+res_xfem = res
+res_xfem = CALC_CHAMP(reuse=res_xfem, RESULTAT=res_xfem, FORCE=('REAC_NODA',))
+mesh_xvisu = POST_MAIL_XFEM(MODELE=model)
+model_xvisu = AFFE_MODELE(
+    MAILLAGE=mesh_xvisu,
+    AFFE=_F(GROUP_MA=('Blok',), PHENOMENE='MECANIQUE', MODELISATION='3D'),
+)
+res_xvisu = POST_CHAM_XFEM(MODELE_VISU=model_xvisu, RESULTAT=res_xfem)
+res_xvisu = CALC_CHAMP(reuse=res_xvisu, RESULTAT=res_xvisu,
+                       CONTRAINTE=('SIGM_NOEU',), CRITERES=('SIEQ_NOEU',))
+res = PROJ_CHAMP(RESULTAT=res_xvisu, MODELE_1=model_xvisu,
+                 MODELE_2=model_sain, METHODE='COLLOCATION',
+                 NOM_CHAM=('DEPL', 'SIGM_NOEU', 'SIEQ_NOEU'))
+reac_xfem = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='EXTR',
+                       RESULTAT=res_xfem, NOM_CHAM='REAC_NODA', NUME_ORDRE=1)
+reac_sain = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R', OPERATION='ASSE',
+                       MODELE=model_sain,
+                       ASSE=_F(TOUT='OUI', CHAM_GD=reac_xfem,
+                               NOM_CMP=('DX', 'DY', 'DZ')))
+res = CREA_RESU(reuse=res, RESULTAT=res, OPERATION='AFFE',
+                TYPE_RESU='EVOL_ELAS',
+                AFFE=_F(NOM_CHAM='REAC_NODA', CHAM_GD=reac_sain, INST=0.0,
+                        MODELE=model_sain))
+model = model_sain
+
+
+# =====================================================
+# 9. RESULTAAT-EXTRACTIE NAAR TABELLEN  (POST_RELEVE_T)
+# Gegenereerd door bridge_to_aster.py op basis van element-typen.
+# Verplaatsingen en reactiekrachten worden altijd geextraheerd.
+# tab_sigm / tab_vmis : 3D-elsets
+# tab_vmss / tab_vmsm / tab_vmsi : schalen, von Mises boven/midden/onder
+# tab_sipm            : balken (RECTANGLE / CERCLE), SIXXMIN / SIXXMAX
+# INTITULE is maximaal 16 tekens (Code-Aster kapt langere af).
+#
+# Aparte tabellen per veld zodat INTITULE (parts[0] in de parser)
+# het veld uniek identificeert in AsterToMecway_results()
+# in bridge_from_aster.py.
+# =====================================================
+#-- tabellen niet nodig (result_route='liml') --
+
+
+# =====================================================
+# 10. TABELLEN WEGSCHRIJVEN NAAR .resu  (IMPR_TABLE)
+# UNITE=8 -> 'F resu ... R 8' in study.export
+# Alleen de tabellen die in stap 9 zijn aangemaakt worden geschreven.
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.export_results(
+    res, '<WORKDIR>\\BR-11\\BR-11_verif_results.xml', '<WORKDIR>\\BR-11\\BR-11.liml',
+    extra_results=dict((k, globals()[k]) for k in
+                       ('res_sup', 'res_moy', 'res_inf',
+                        'res_flux', 'res_err')
+                       if k in globals()),
+    precision='double')
+
+
+# =====================================================
+# 11. EXPORT NAAR MED-FORMAAT (ParaView / Salome), alleen met de
+# instelling "med_export" (bridge_to_aster._build_impr_resu_block;
+# UNITE=80 -> 'F rmed ... R 80' in study.export). Mecway krijgt de
+# resultaten via de .liml of de tabellen, niet via een exportbestand.
+# =====================================================
+#-- geen MED-export (instelling med_export uit) --
+
+# =====================================================
+# BREUKMECHANICA XFEM (bridge_xfem.k_block): K en G langs het
+# front van elke #ASTER-XFEM-scheur, per front (NUME_FOND)
+# =====================================================
+
+def _bridge_xfem_fronts(fiss):
+    return max(1, len(fiss.getCrackTipMultiplicity()) // 2)
+
+
+def _bridge_xfem_csv(path, tables, columns):
+    import io
+    lines = [",".join(c[0] for c in columns)]
+    for key, front, t_g, t_pk in tables:
+        vg = t_g.EXTR_TABLE().values()
+        vpk = {}
+        if t_pk is not None:
+            vp = t_pk.EXTR_TABLE().values()
+            for i, num in enumerate(vp.get("NUM_PT", [])):
+                vpk[int(num)] = dict((k, vp[k][i]) for k in vp
+                                     if i < len(vp[k]))
+        size = max([abs(v) for c in ("COOR_X", "COOR_Y", "COOR_Z")
+                    for v in vg.get(c, []) if v is not None] + [1.0e-30])
+        for i, num in enumerate(vg.get("NUM_PT", [])):
+            pk = vpk.get(int(num), {})
+            if pk and any(abs((pk.get(c) or 0.0) - (vg[c][i] or 0.0)) >
+                          1.0e-6 * size for c in ("COOR_X", "COOR_Y",
+                                                  "COOR_Z")):
+                pk = {}
+            row = []
+            for n, (head, para) in enumerate(columns):
+                if head == "crack":
+                    v = key
+                elif head == "front":
+                    v = front
+                elif head.endswith("_POST_K"):
+                    v = pk.get(para)
+                else:
+                    v = vg.get(para, [None] * (i + 1))[i]
+                if v is None:
+                    row.append("")
+                elif isinstance(v, float):
+                    row.append("%.10g" % v)
+                else:
+                    row.append(str(v).strip())
+            lines.append(",".join(row))
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print("BRIDGE_XFEM_CSV " + path)
+
+_bridge_xfem_tabs = []
+# Scheur 1 (ELLIPSE)
+for _k in range(1, _bridge_xfem_fronts(fiss_1) + 1):
+    _tg = CALC_G_XFEM(RESULTAT=res_xfem, OPTION='CALC_K_G',
+                      THETA=_F(FISSURE=fiss_1, NUME_FOND=_k, R_INF=0.156, R_SUP=0.39, NB_POINT_FOND=20),
+                      LISSAGE=_F(LISSAGE_G='LAGRANGE', LISSAGE_THETA='LAGRANGE'))
+    IMPR_TABLE(TABLE=_tg, UNITE=6)
+    # POST_K1_K2_K3 (extrapolatie van de sprong in de
+    # verplaatsing over de lippen) als controle; een fout hier
+    # stopt de tabel van CALC_G_XFEM niet
+    try:
+        _tp = POST_K1_K2_K3(RESULTAT=res_xfem, FISSURE=fiss_1, NUME_FOND=_k, ABSC_CURV_MAXI=0.39, NB_POINT_FOND=20)
+        IMPR_TABLE(TABLE=_tp, UNITE=6)
+    except Exception as _e:
+        _tp = None
+        print('BRIDGE_XFEM_POSTK_FOUT 1/' + str(_k) + ' ' + str(_e).replace(chr(10), ' ')[:300])
+    _bridge_xfem_tabs.append(('1', _k, _tg, _tp))
+_bridge_xfem_csv('<WORKDIR>\\BR-11\\BR-11_verif_xfem.csv', _bridge_xfem_tabs, [['crack', None], ['front', None], ['point', 'NUM_PT'], ['x', 'COOR_X'], ['y', 'COOR_Y'], ['z', 'COOR_Z'], ['s', 'ABSC_CURV'], ['G', 'G'], ['K1', 'K1'], ['K2', 'K2'], ['K3', 'K3'], ['G_IRWIN', 'G_IRWIN'], ['K1_POST_K', 'K1'], ['K2_POST_K', 'K2'], ['K3_POST_K', 'K3'], ['G_POST_K', 'G']])
+
+
+FIN()

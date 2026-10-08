@@ -1,0 +1,243 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor de responsspectrumanalyse (aardbeving, schok): eigenmodes
+# (CALC_MODES), de spectrale respons per mode en de combinatie over de
+# modes en de richtingen (COMB_SISM_MODAL), terug naar Mecway als een stap
+# met de maxima. Invulling via str.format() vanuit bridge_spectrum.py.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> DEFI_GROUP / CREA_MAILLAGE / MODI_MAILLAGE
+#   model_block       -> AFFE_MODELE per elset
+#   cara_elem_block   -> AFFE_CARA_ELEM (balken, schalen, veren, knoopmassa's)
+#   materials_block   -> DEFI_MATERIAU per materiaal (met RHO)
+#   fieldmat_block    -> AFFE_MATERIAU toewijzing
+#   loads_block       -> AFFE_CHAR_MECA: de opleggingen (en #ASTER-code)
+#   assemblage_block  -> ASSEMBLAGE: RIGI_MECA en MASS_MECA met de
+#                        opleggingen
+#   calc_modes_block  -> modes = CALC_MODES(...), het modeoverzicht en de
+#                        modale velden (CALC_CHAMP)
+#   spectrum_block    -> spectra per richting, demping per mode,
+#                        pseudo-modes (missing mass) en COMB_SISM_MODAL
+#   result_block      -> de maxima als een resultaat (aster_spectrum) en
+#                        CALC_CHAMP (spanningen)
+#   export_block      -> aster_results_export (Mecway-resultaat, een stap)
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# Een accolade die geen placeholder is: verdubbelen ({ of }).
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+#-- not used in this analysis --
+
+
+# =====================================================
+# 2. MODEL, SECTIES, MATERIALEN (zoals MECA_STATIQUE)
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Veer1', PHENOMENE='MECANIQUE', MODELISATION='DIS_T'),
+        _F(GROUP_MA='Veer2', PHENOMENE='MECANIQUE', MODELISATION='DIS_T'),
+        _F(GROUP_MA='BRMA1', PHENOMENE='MECANIQUE', MODELISATION='DIS_T'),
+        _F(GROUP_MA='BRMA2', PHENOMENE='MECANIQUE', MODELISATION='DIS_T'),
+    ),
+)
+
+
+cara = AFFE_CARA_ELEM(
+    MODELE=model,
+    DISCRET=(
+        _F(GROUP_MA='Veer1',
+           CARA='K_T_D_L', REPERE='LOCAL',
+           VALE=(100000.0, 0.0, 0.0)),
+        _F(GROUP_MA='Veer1',
+           CARA='M_T_D_L',
+           VALE=(0.0,)),
+        _F(GROUP_MA='Veer2',
+           CARA='K_T_D_L', REPERE='LOCAL',
+           VALE=(4535.14739229025, 0.0, 0.0)),
+        _F(GROUP_MA='Veer2',
+           CARA='M_T_D_L',
+           VALE=(0.0,)),
+        _F(GROUP_MA='BRMA1', CARA='K_T_D_N', VALE=(0.0, 0.0, 0.0,)),
+        _F(GROUP_MA='BRMA1', CARA='M_T_D_N', VALE=(100.0,)),
+        _F(GROUP_MA='BRMA2', CARA='K_T_D_N', VALE=(0.0, 0.0, 0.0,)),
+        _F(GROUP_MA='BRMA2', CARA='M_T_D_N', VALE=(5.0,)),
+    ),
+)
+
+
+
+
+MAT_BRLEEG = DEFI_MATERIAU(ELAS=_F(E=1.0, NU=0.0),)
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(TOUT='OUI', MATER=MAT_BRLEEG),
+    ),
+)
+
+
+# =====================================================
+# 3. OPLEGGINGEN
+# =====================================================
+load_1 = AFFE_CHAR_MECA(
+    MODELE=model,
+    DDL_IMPO=(
+        _F(GROUP_NO='Grond', DX=0.0, DY=0.0, DZ=0.0),
+        _F(GROUP_NO='Massa', DY=0.0, SANS_GROUP_NO=('Grond',)),
+        _F(GROUP_NO='Massa', DZ=0.0, SANS_GROUP_NO=('Grond',)),
+    ),
+)
+
+
+# =====================================================
+# 4. MATRICES (ASSEMBLAGE, U4.61.21) EN EIGENMODES (CALC_MODES, U4.52.02)
+# =====================================================
+ASSEMBLAGE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    CARA_ELEM=cara,
+    CHARGE=(load_1,),
+    NUME_DDL=CO('numedd'),
+    MATR_ASSE=(
+        _F(MATRICE=CO('rigidite'), OPTION='RIGI_MECA'),
+        _F(MATRICE=CO('masse'), OPTION='MASS_MECA'),
+    ),
+)
+
+
+modes = CALC_MODES(
+    TYPE_RESU='DYNAMIQUE',
+    MATR_RIGI=rigidite,
+    MATR_MASS=masse,
+    OPTION='PLUS_PETITE',
+    CALC_FREQ=_F(NMAX_FREQ=2),
+    CHAM_MATER=fieldmat,
+    CARA_ELEM=cara,
+    NORM_MODE=_F(NORME='MASS_GENE'),
+    VERI_MODE=_F(SEUIL=1e-06, STOP_ERREUR='NON'),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8),
+)
+# Modeoverzicht (frequentie, effectieve massa) in de .mess
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+import aster_spectrum
+aster_results_export.print_modes(modes, mass=masse)
+# Modale velden voor COMB_SISM_MODAL
+modes = CALC_CHAMP(reuse=modes, RESULTAT=modes, FORCE=('REAC_NODA',))
+
+
+# =====================================================
+# 5. SPECTRA EN COMBINATIE (COMB_SISM_MODAL, comb_sism_modal_ops.py)
+# =====================================================
+# Spectrum X: Mecway-gravity, periode [s] -> versnelling [m/s2],
+# lineair tussen de punten, constant buiten de tabel.
+bridge_xs_X = [0.0, 0.1, 0.3, 2.0]
+bridge_ys_X = [2.0, 8.0, 5.0, 1.0]
+bridge_spec_X = FORMULE(
+    VALE='bridge_table(1.0 / FREQ, bridge_xs_X, bridge_ys_X)',
+    bridge_table=aster_spectrum.table, bridge_xs_X=bridge_xs_X,
+    bridge_ys_X=bridge_ys_X, NOM_PARA=('AMOR', 'FREQ'))
+
+# Modale demping: Mecway's Rayleigh-demping C = alpha M + beta K is
+# per mode xi_i = (alpha / w_i + beta w_i) / 2 (Mecway manual par.
+# 9.26), plus de instelling spectrum_damping.
+import math as _math
+bridge_freqs = [float(_f) for _f in modes.getAccessParameters()['FREQ']]
+bridge_alpha, bridge_beta, bridge_zeta = 0.0, 0.0, 0.05
+bridge_xi = []
+for _f in bridge_freqs:
+    _w = 2.0 * _math.pi * _f
+    if _w <= 0.0:
+        print('BRIDGE_SPECTRUM_FOUT FREQ mode=%d f=%g' % (len(bridge_xi) + 1, _f))
+        raise ValueError('spectrum: mode met f <= 0')
+    bridge_xi.append(0.5 * (bridge_alpha / _w + bridge_beta * _w) + bridge_zeta)
+if max(bridge_xi) >= 1.0:
+    print('BRIDGE_SPECTRUM_FOUT DEMPING mode=%d xi=%g' % (bridge_xi.index(max(bridge_xi)) + 1, max(bridge_xi)))
+    raise ValueError('spectrum: dempingsverhouding >= 1')
+bridge_specs = [
+    dict(dir='X', spec=bridge_spec_X, scale=1.0, nature='ACCE', corr_freq='NON'),
+]
+
+# Missing mass: pseudo-modes = statische respons op een
+# eenheidsversnelling per richting (MODE_STATIQUE PSEUDO_MODE,
+# testcase sdlx02a); COMB_SISM_MODAL MODE_CORR telt de rest
+# (pseudo-mode min de bijdrage van de modes) op met het spectrum
+# op de afsnijfrequentie = de hoogste gerekende mode.
+bridge_fcut = max(bridge_freqs)
+psmod = MODE_STATIQUE(
+    MATR_RIGI=rigidite,
+    MATR_MASS=masse,
+    CHAM_MATER=fieldmat,
+    CARA_ELEM=cara,
+    PSEUDO_MODE=_F(AXE=('X',)),
+)
+psmod = CALC_CHAMP(reuse=psmod, RESULTAT=psmod, FORCE=('REAC_NODA',))
+
+sism = COMB_SISM_MODAL(
+    MODE_MECA=modes,
+    AMOR_REDUIT=bridge_xi,
+    TYPE_ANALYSE='MONO_APPUI',
+    MODE_CORR='OUI',
+    PSEUDO_MODE=psmod,
+    FREQ_COUP=bridge_fcut,
+    SPECTRE=(
+        _F(LIST_AXE=('X',), SPEC_OSCI=bridge_spec_X),
+    ),
+    COMB_MODE=_F(TYPE='CQC'),
+    COMB_DIRECTION='QUAD',
+    OPTION=('DEPL', 'ACCE_ABSOLU', 'REAC_NODA',),
+    TYPE_RESU=(_F(TYPE='VALE_TOTA'),),
+    INFO=2,
+)
+aster_spectrum.report(modes, bridge_specs, bridge_xi, 'CQC', 'QUAD', psmod=psmod, f_cut=bridge_fcut)
+
+
+# =====================================================
+# 6. MAXIMA ALS RESULTAAT EN SPANNINGEN
+# =====================================================
+# De maxima als een resultaat (een index; ACCE_ABSOLU -> ACCE)
+res = aster_spectrum.maxima(sism, ['DEPL', 'ACCE_ABSOLU', 'REAC_NODA'], 'SRSS', ['X'], MODELE=model, CHAM_MATER=fieldmat, CARA_ELEM=cara)
+res_mecway = aster_spectrum.Result(res, {})
+
+
+# =====================================================
+# 7. RESULTATEN NAAR MECWAY
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml'), een stap met de maxima
+aster_results_export.export_results(
+    res_mecway, '<WORKDIR>\\SP-03\\SP-03_verif_results.xml', '<WORKDIR>\\SP-03\\SP-03.liml',
+    precision='single', static=True, fields=['displacements', 'accelerations', 'stresses', 'vonmises', 'reactions'])
+
+
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

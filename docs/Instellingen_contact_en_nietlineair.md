@@ -1,0 +1,820 @@
+# Instellingen voor contact en niet-lineaire analyses
+
+*English version: [Settings_contact_and_nonlinear.md](en/Settings_contact_and_nonlinear.md)*
+
+Voor wie Mecway kent en nieuw is in Code-Aster. Dit document beschrijft wat de
+bridge werkelijk in de `.comm` van een run (`<model>_<run-id>.comm`, zie
+[Handleiding §5](Handleiding.md#5-bestanden-in-de-werkmap)) zet, en welke
+Code-Aster-opties er verder bestaan. Bij twijfel is de code leidend. Code-Aster-versie: 17.4.
+
+Waarom elke standaardwaarde zo gekozen is, met het bewijs per instelling:
+[`Standaardinstellingen_en_aannames.md`](Standaardinstellingen_en_aannames.md).
+Verwijzingen als (EDF R&D, U2.04.04 §4.1) zijn het documentnummer en de paragraaf van
+de Code-Aster-documentatie; de volledige gegevens staan in §5. "Catalogus" is de
+syntaxdefinitie van de geïnstalleerde Code-Aster 17.4 (`code_aster/Cata`), de bron
+voor standaardwaarden. Test-id's als NL-01 verwijzen naar [Verificatie.md](Verificatie.md),
+R-... naar de controleruns in [Standaardinstellingen_en_aannames.md](Standaardinstellingen_en_aannames.md) §5.
+
+---
+
+## 1. Overzicht
+
+### Welke analyse wordt welk Code-Aster-commando
+
+| Mecway-analyse | Bridge-analyse (`active_analysis`) | Code-Aster | Tijdsintegratie |
+|---|---|---|---|
+| S30, lineair statisch | `lin_static_3d` | `MECA_STATIQUE` | geen |
+| L30, niet-lineair statisch | `nonlin_static_3d` | `STAT_NON_LINE` | pseudo-tijd, Newton per stap |
+| D31, dynamisch, impliciet | `dyna_impl_3d` | `DYNA_NON_LINE` | HHT (of NEWMARK), Newton per stap |
+| D31, dynamisch, expliciet | `dyna_expl_3d` | `DYNA_NON_LINE` | DIFF_CENT (of TCHAMWA), geen iteraties |
+| D30, lineair dynamisch (zonder *Mode superposition*) | `dyna_impl_3d` | `DYNA_NON_LINE` | NEWMARK met `deformation` `PETIT` = Mecway's schema (anders WARNING) |
+| D30 met *Mode superposition* | `dyna_modal_3d` | `CALC_MODES` + `DYNA_VIBRA` `GENE` | NEWMARK per mode ([Respons_op_modale_basis.md](Respons_op_modale_basis.md)) |
+
+Met "Actieve analyse" = `auto` (standaard) volgt de bridge het analysetype in de
+`.liml` (`bridge_utils.resolve_auto_analysis`): S30, L30, D30 en D31 zoals in de
+tabel (D31 wordt altijd `dyna_impl_3d`), T30/T31 `ther_3d` ([Thermisch.md](Thermisch.md)),
+V30 `modal_3d` (met een fluïdum-onderdeel `vibroacoustic_modes_3d`), B30 `buckling_3d`
+([Modaal_en_knik.md](Modaal_en_knik.md)) en A30 `acoustic_modes_3d` (met een bron
+`acoustic_harm_3d`; [Akoestiek.md](Akoestiek.md)). Een ander type stopt de bridge met
+een melding. Expliciet dynamisch kies je zelf in het
+startscherm.
+
+Wat de niet-lineaire analyses ondersteunen:
+
+- materiaal: `ELAS`; met plasticiteit `VMIS_ISOT_TRAC` (hardingscurve,
+  Ramberg-Osgood, OpenRadioss `PLAS_TAB`), `VMIS_ISOT_LINE` of `VMIS_CINE_LINE`
+  (bilineair); tension only `CABLE`, gap `DIS_CHOC`;
+- contact: Mecway `contact2` wordt `DEFI_CONTACT` (§3); compression only
+  `DEFI_CONTACT FORMULATION='LIAISON_UNIL'`;
+- dynamica: beginsnelheid (Mecway `initialconditions/velocity`) wordt
+  `ETAT_INIT=_F(VITE=...)`;
+- tijdsafhankelijke lasten via `DEFI_FONCTION`.
+
+### Waar je de instellingen vindt
+
+- **Startscherm**, een pagina per analyse. Een veld verschijnt alleen als de
+  sleutel in die analyse bestaat (`CONFIG_BRIDGE["analyses"]` in
+  `Scripts/bridge_utils.py`, `ANALYSIS_SPECS` in `bridge_gui.py`):
+
+| Groep (kopje op de pagina) | Sleutels | Analyses |
+|---|---|---|
+| Code-Aster-run | `time_limit`, `memory_limit` | alle |
+| Oplosser | `solver_nprec`; `lin_solver`, `lin_solver_resi` | alle; de laatste twee alleen statisch |
+| Stappen en convergentie | `substeps_per_interval` (statisch), `newton_max_iter`, `newton_reac_iter`, `default_time_end`, `convergence_criterion`, `convergence_resi_rela`, `convergence_resi_maxi` | niet-lineair statisch, dynamisch impliciet; `default_time_end` ook expliciet |
+| Contact | `contact_algo` | niet-lineair statisch, dynamisch |
+| Materiaal en kinematica | `plastic_strain_definition`, `deformation` | niet-lineair statisch, dynamisch |
+| Tijdschema | `schema`, `hht_alpha`, `substeps_per_output` (impliciet), `explicit_dt_factor` (expliciet) | dynamisch |
+| Bezwijken | `element_failure`, `failure_plastic_strain`, `failure_stiffness_factor` | niet-lineair statisch, dynamisch ([Bezwijken.md](Bezwijken.md)) |
+| Controle | `energy_balance`; `error_estimator` | dynamisch impliciet; statisch |
+| Niet-lineaire knik | `crit_stab`, `imperfection_amplitude`, `imperfection_mode`, `imperfection_unit` | niet-lineair statisch ([Modaal_en_knik.md](Modaal_en_knik.md) §5) |
+
+- **Per model**: `#ASTER-OPTIE sleutel = waarde` (§3.9).
+
+---
+
+## 2. Instellingen
+
+Legenda: **Bridge** = standaardwaarde in `bridge_utils.py`; **CA** =
+Code-Aster-standaard als je het sleutelwoord weglaat (catalogus 17.4).
+
+### 2.1 Tijdstappen
+
+| Sleutel (label) | Analyse | Wat het doet | Bridge | CA |
+|---|---|---|---|---|
+| `substeps_per_interval` (Substappen per tijdsinterval) | statisch | Rekenstappen per interval tussen de tijdspunten van de tijdsafhankelijke lasten (`DEFI_LIST_REEL`, `NOMBRE`). Zonder tijdslast: 0 tot `default_time_end`. | 10 | - |
+| `substeps_per_output` (Rekenstappen per uitvoerinterval) | impliciet | Rekenstappen per uitvoerinterval van Mecway `<timesteps>`. Knikpunten van lastfuncties komen er als extra tijdspunt bij. | 1 | - |
+| `default_time_end` (Eindtijd zonder tijdsbelasting) [s] | alle | Eindtijd als het model geen tijdslast (statisch) of geen `<timesteps>` (dynamisch) heeft. | 1.0 | - |
+| `explicit_dt_factor` (Tijdstap / kritieke tijdstap) | expliciet | Tijdstap ≤ factor × de kritieke tijdstap zoals de bridge die schat, per uitvoerinterval gelijk verdeeld (zo is elke uitvoertijd een rekenstap). | 0.5 | - |
+
+**Statisch (`STAT_NON_LINE`).** Net als bij impliciete dynamica maakt de bridge een
+`DEFI_LIST_INST` met automatisch knippen (zie hieronder); met alleen een
+`DEFI_LIST_REEL` zou Code-Aster de stap niet verkleinen (EDF R&D, U4.51.03; melding
+`SUBDIVISE_3`). Naar Mecway gaan (route `liml`) alle gearchiveerde rekenstappen tot
+het laatst bereikte tijdstip (de bridge zet geen `ARCHIVAGE`), of (route `tabel`)
+alleen dat laatste tijdstip. Mecway's eigen stapgrootte (`stepsize`) wordt niet
+gelezen (KNOWN_BUGS 44).
+
+**Impliciet dynamisch.** De bridge maakt een `DEFI_LIST_INST` met:
+
+```
+ECHEC=_F(EVENEMENT='ERREUR', ACTION='DECOUPE',
+         SUBD_METHODE='MANUEL', SUBD_PAS=4, SUBD_NIVEAU=6)
+```
+
+- `EVENEMENT='ERREUR'` omvat o.a. te veel Newton-iteraties, mislukte integratie van
+  de materiaalwet en een singuliere matrix (EDF R&D, U4.34.03, "Event ERREUR").
+- `DECOUPE` met `SUBD_PAS=4`: de mislukte stap wordt in **4** gelijke stappen
+  gedeeld (geen halvering). `SUBD_NIVEAU=6`: dat kan 6 keer genest, dus tot 1/4096
+  van de oorspronkelijke stap.
+- CA-standaard volgens de catalogus: `SUBD_PAS=4`, `SUBD_NIVEAU=3`. U4.34.03 noemt
+  voor de automatisch toegevoegde `ERREUR` `SUBD_NIVEAU=4`; de catalogus zegt 3.
+  Welke van de twee Code-Aster gebruikt, is NIET geverifieerd (de bridge zet hem
+  toch expliciet op 6).
+- Resultaten worden alleen op de uitvoertijden gearchiveerd (`ARCHIVAGE`), en
+  alle uitvoertijden gaan naar Mecway.
+
+**Hoeveel substappen.** Kleinere stappen maken een niet-lineair probleem meestal
+makkelijker (EDF R&D, U2.04.01), maar niet altijd: NL-02a (grote doorbuiging,
+elastisch) gaf met 1 substap per interval dezelfde uitkomst als met 10 (R-SUB1), en
+NL-01 (plastische volumes) stopte met 40 substappen en `RESI_GLOB_RELA` 1e-6 al op
+t = 0,013, omdat de restkracht van `GDEF_LOG` bij een kleine last boven 1e-6 van de
+reactie blijft (R-SUB40; §2.2; met de standaard 1e-5 rekent hij door).
+
+**Expliciet (`DIFF_CENT`).**
+
+- Stabiliteit: de tijdstap moet onder de Courant-grens (CFL) blijven. Voor
+  `DIFF_CENT` is de kritieke stap 2/ω_max (EDF R&D, U2.06.13).
+- De bridge schat de kritieke stap als kleinste ribbe / drukgolfsnelheid
+  `c = sqrt(E(1-ν)/(ρ(1+ν)(1-2ν)))` over alle elementen met een dichtheid. Dat is
+  een schatting, niet de waarde van Code-Aster.
+- Code-Aster berekent de CFL-grens zelf en stopt met `DYNAMIQUE_2` als een stap te
+  groot is (`STOP_CFL='OUI'`, standaard; EDF R&D, U4.53.01). De bridge laat dat aan.
+- **Factor en CFL-grens.** De factor geldt voor de schatting van de bridge. In DY-03a
+  (hex8-kubussen van 10 mm, ν = 0) was de grens van Code-Aster de helft van die
+  schatting (9,667e-7 s tegen 1,933e-6 s): de standaard 0,5 komt uit op de grens zelf
+  (door de gelijke verdeling per uitvoerinterval 0,86 × de grens), en met 0,7 of meer
+  weigert Code-Aster de run (R-DT). U2.06.13 raadt 0,5 tot 0,7 × de CFL-grens aan; dat
+  is hier een factor 0,25 tot 0,35 (0,3 gaf in DY-03a dezelfde uitkomst binnen de
+  tolerantie). Voor andere elementvormen is de verhouding NIET gemeten.
+- De CFL wordt alleen aan het begin berekend (U2.06.13). Elementen die sterk
+  krimpen, of penalty-contact, kunnen de grens verlagen: verlaag dan de factor.
+- De bridge zet `MASS_DIAG='OUI'` (diagonale massa, aanbevolen in U4.53.01).
+- Expliciet wordt de stap nooit automatisch verkleind (U2.06.13).
+- **Geen mass scaling.** Een optie zoals `/DT/NODA/CST` in OpenRadioss (massa
+  toevoegen om de stap te vergroten) staat niet in U4.53.01 en U2.06.13 (NIET
+  gevonden). `COEF_MASS_SHIFT` is iets anders (M + coef·K, om een singuliere
+  massamatrix inverteerbaar te maken). De stap volgt dus uit het kleinste element.
+  Boven 2 000 000 stappen schrijft de bridge een WARNING; overweeg dan `dyna_impl_3d`.
+- **Demping en discrete elementen.** Rayleigh-demping verkleint de stabiele stap:
+  dt = (2/ω)(√(1+ξ²) − ξ) met ξ = α/(2ω) + βω/2 (Belytschko e.a., 2000; factor
+  < 0,1: WARNING, overweeg `dyna_impl_3d`). Losse veren, dempers en knoopmassa's tellen
+  mee (ω² = Σk(1/m_i + 1/m_j) per knoop); zonder elementen met materiaal kan
+  Code-Aster de CFL niet zelf bepalen (`DYNAMIQUE_4`), dan zet de bridge
+  `STOP_CFL='NON'`.
+- **Opgelegde verplaatsing.** `DIFF_CENT`/`TCHAMWA` kennen alleen
+  `FORMULATION='ACCELERATION'`: `DDL_IMPO` legt daar een versnelling op. De bridge zet
+  een opgelegde verplaatsing, rotatie of snelheid ≠ 0 om naar de versnelling die het
+  schema oplegt; op elke rekenstap klopt u(t) (DY-03b). Knikken in u(t) worden
+  rekentijden; een waarde zonder tijdshistorie wordt in de eerste stap bereikt (stoot,
+  WARNING). Een verplaatsing 0 blijft gewoon vast.
+- **Schalen.** Expliciet met DKT gaf dezelfde trilling als impliciet (R-STRIP: periode
+  +0,6 % ten opzichte van Euler-Bernoulli); de bridge zet geen `INER_ROTA`.
+
+### 2.2 Newton en convergentie
+
+| Sleutel (label) | Code-Aster | Bridge | CA | Wanneer aanpassen |
+|---|---|---|---|---|
+| `newton_max_iter` (Max. Newton-iteraties) | `CONVERGENCE/ITER_GLOB_MAXI` | 20 | 10 | Verhogen bij contact (`CONTINUE`): U4.51.03 zegt dat contact vaak meer iteraties vraagt. Heel veel iteraties wijst meestal op een modelfout of een te grote stap (U4.51.03). Met 1 substap had NL-02a 11 iteraties nodig (R-SUB1). |
+| `newton_reac_iter` (NEWTON REAC_ITER) | `NEWTON/REAC_ITER` | 1 | 1 | Houd 1: tangentmatrix elke iteratie opnieuw (robuust, aanbevolen in EDF R&D, U2.04.01 en U2.04.04 §4.5.2). Met 0 stopte NL-02a in de eerste stap met `DVP_2` (R-REAC0); het startscherm accepteert daarom minimaal 1. |
+| `convergence_criterion` (Convergentiecriterium) | `RESI_GLOB_RELA`, `RESI_GLOB_MAXI`, of beide met `VERIF='AU_MOINS_UN'` | `RELA` | `RELA` | Zie hieronder. |
+| `convergence_resi_rela` (Convergentie RESI_GLOB_RELA) | `CONVERGENCE/RESI_GLOB_RELA` | 1e-5 (thermisch 1e-6) | 1e-6 | Relatief t.o.v. de opgelegde last plus reacties (U4.51.03). De bridge wijkt af van de CA-standaard 1e-6 omdat het residu daar bij plastische volumes (`GDEF_LOG`) op stagneert (zie hieronder). 1e-6 kan, eventueel met `RELA_OF_MAXI`. Verder niet losser maken: dat verbergt problemen. |
+| `convergence_resi_maxi` (Convergentie RESI_GLOB_MAXI) [N] | `CONVERGENCE/RESI_GLOB_MAXI` | 1e-3 | - | Alleen met `MAXI` en `RELA_OF_MAXI`. `MAXI`: klein kiezen ten opzichte van de verwachte krachten. `RELA_OF_MAXI`: boven de absolute rest waarop het residu stagneert (kolom `RESI_GLOB_MAXI` in de `.mess`). |
+
+**`RELA` of `MAXI`.** `RELA` = `RESI_GLOB_RELA`: grootste restkracht gedeeld door de
+opgelegde last plus reacties. `MAXI` = `RESI_GLOB_MAXI`: grootste restkracht in N
+(`convergence_resi_maxi`). Wordt de referentie van `RELA` nul (bijv. volledig
+ontlasten), dan schakelt Code-Aster zelf over op een absoluut criterium, maar niet in
+de eerste stap (U4.51.03, "Convergence settings"). Kies dus `MAXI` als de last en de
+reacties vanaf het begin ~0 zijn (een opgelegde beweging zonder weerstand of
+contactkracht): een starre translatie stopte met `RELA` in stap 1 en was met `MAXI`
+1e-3 N exact (R-RIGID). Samples/PipeClip bleef met `RELA` in stap 1 hangen
+(RESI_GLOB_RELA 1..13 bij ~1e-12 N) en rekent met `MAXI` 1e-3 N door.
+
+**`RELA_OF_MAXI`.** De bridge zet dan beide criteria met `VERIF='AU_MOINS_UN'`:
+geconvergeerd als het relatieve **of** het absolute criterium gehaald is (catalogus
+`c_convergence.py` 17.4; U4.51.03). Zonder `VERIF` eist Code-Aster beide
+(`VERIF='TOUT'`). Zo werkt ook CCX: een relatief criterium met een absolute
+ondergrens bij kleine krachten. U4.51.03 waarschuwt dat `'AU_MOINS_UN'` een
+onnauwkeurige uitkomst kan accepteren; kies `convergence_resi_maxi` dus niet groter
+dan nodig: net boven de absolute rest waarop het residu stagneert (kolom
+`RESI_GLOB_MAXI` in de `.mess` of het convergentiescherm, §4.4). Gemeten op NL-01 met
+`RESI_GLOB_RELA` 1e-6: met `RESI_GLOB_MAXI` 0,05 N exact tot t = 3 (verificatiecase
+NL-01b); met 1e-3 N niet, want de absolute rest stagneert op ~1e-2 N (R-ROM).
+
+**Stagnatie met `GDEF_LOG`; waarom standaard 1e-5.** Bij plastische volumes
+(`GDEF_LOG`, §2.3) blijft de restkracht steken: rond 5e-4 N bij een kleine last en
+~1e-2 N bij het ontlasten (trekstaaf van NL-01, 12 kN; `RESI_GLOB_RELA` ~1,5…2,3e-6).
+Met de CA-standaard 1e-6 is dat meer dan het criterium; de stap wordt geknipt, de last
+nog kleiner, en de run stopt met `MECANONLINE9_7`. Gezien bij ontlasten (NL-01 stopte
+op t = 2,92), met 40 substappen (stop op t = 0,013) en met een hardingscurve (stop op
+t = 0,013). Met 1e-5 (NL-01, R-SUB40-1E5, R-CURVE), `MAXI` 1e-2 N (R-MAXI) of
+`RELA_OF_MAXI` (NL-01b) rekenen ze door en zijn ze exact. Daarom is de standaard van
+de bridge 1e-5 (`nonlin_static_3d`, `dyna_impl_3d`). Over alle NL- en
+DY-verificatiecases veranderde 1e-6 → 1e-5 de resultaten hooguit 3,75e-6 relatief
+(R-1E5); CCX en Abaqus gebruiken 5e-3.
+
+Niet instelbaar in de bridge: `NEWTON/PREDICTION`. Normaal laat de bridge het
+weg; de catalogus geeft geen standaardwaarde en welke voorspelling Code-Aster dan
+gebruikt, staat niet eenduidig in U4.51.03 (NIET geverifieerd). U2.04.01 en U2.04.04
+§4.5.2 raden `PREDICTION='ELASTIQUE'` aan bij convergentieproblemen. Uitzondering: met
+[bezwijken van elementen](Bezwijken.md) zet de bridge het wel: `'TANGENTE'`, en in de
+stap direct na een bezwijkmoment `'ELASTIQUE'` (statisch en impliciet dynamisch).
+Expliciet blijft het altijd `'TANGENTE'` (Code-Aster staat bij een expliciet schema
+niets anders toe).
+
+### 2.3 Kinematica: `deformation`
+
+`COMPORTEMENT/DEFORMATION` (EDF R&D, U4.51.11, "Operand DEFORMATION"). Code-Aster:
+`PETIT`; de bridge gebruikt voor de niet-lineaire analyses standaard `GROT_GDEP`,
+omdat Mecway's niet-lineaire analyse (CCX) geometrisch niet-lineair rekent (een
+plastische staaf: met `PETIT` 14 % te stijf, met grote verplaatsingen +1 % t.o.v.
+Mecway; eerdere run, model niet in de repository). De waarde in het startscherm is een
+keuze voor het hele model; kies je een vorm voor grote verplaatsingen (`GROT_GDEP`,
+`GREEN_LAGRANGE`, `GDEF_LOG`, `SIMO_MIEHE`), dan zet de bridge per elset de vorm die
+Code-Aster 17.4 bij dat element en die materiaalwet accepteert
+(`bridge_to_aster._deformation_for`, nagelopen met runs op een gemengd model). Eén
+WARNING per run noemt de balk- en DKT/DST-elsets die geometrisch lineair blijven; de
+details per elset staan als INFO in het log.
+
+| Elset | Grote verplaatsingen gekozen | Waarom |
+|---|---|---|
+| volume, elastisch | `GREEN_LAGRANGE`, of `GDEF_LOG` als dat gekozen is | `GROT_GDEP` mag niet op 3D (`COMPOR5_22`) |
+| volume, plastisch | `GDEF_LOG`, of `SIMO_MIEHE` als dat gekozen is (met `VMIS_CINE_LINE` altijd `GDEF_LOG`) | `GREEN_LAGRANGE` met `VMIS_*` geweigerd, `SIMO_MIEHE` met `VMIS_CINE_LINE` ook (`COMPOR1_44`) |
+| DKT/DST | `GREEN_LAGRANGE` (met `VMIS_CINE_LINE` `PETIT`) | `GROT_GDEP` convergeerde niet, `GDEF_LOG` geweigerd (`COMPOR1_99`); `GREEN_LAGRANGE` gaf dezelfde uitkomst als `PETIT`, dus in feite geometrisch lineair. Grote rotaties van schalen: `elem_shell` = `COQUE_3D` |
+| `COQUE_3D` | `GROT_GDEP` | alarm `COMPOR1_47`: rotaties < 2π; NL-02b exact |
+| balk `POU_D_E`/`POU_D_T` | `PETIT` | grote rotaties vragen `POU_D_T_GD` met `ELAS_POUTRE_GR`; `GROT_GDEP` op `POU_D_E` convergeerde niet (KNOWN_BUGS 11) |
+| kabel (tension only) | altijd `GROT_GDEP` | `RELATION='CABLE'` vraagt dat |
+| discreet (veer, knoopmassa, elastic support) | `PETIT` (`PETIT_REAC` als gekozen) | grote verplaatsingen voor discreten NIET geverifieerd |
+
+`PETIT` en `PETIT_REAC` gaan ongewijzigd naar alle elsets (behalve kabels).
+
+**Meebewegende lasten.** Met een vorm voor grote verplaatsingen is uniforme druk een
+meebewegende last (`TYPE_CHARGE='SUIV'`), zoals in Mecway (Mecway, 2026, §9.14), op
+volumes en `COQUE_3D`; op DKT/DST kan Code-Aster dat niet (`CALCUL_42`), daar blijft
+de druk vast (WARNING). Hydrostatische druk blijft vast. Centrifugaalkracht gebruikt in
+`STAT_NON_LINE` de vervormde straal (spin softening, zoals Mecway §9.20) als alleen
+volumes draaien. Plasticiteit op balken wordt elastisch gerekend (WARNING).
+
+| Waarde | Wat | Wanneer |
+|---|---|---|
+| `PETIT` | Kleine verplaatsingen, rotaties en rekken (onder ca. 5 %). | Lineair statisch; niet-lineair alleen bij echt kleine vervormingen of voor vergelijking met lineaire theorie (DY-03). |
+| `PETIT_REAC` | Evenwicht op de bijgewerkte geometrie, wet in kleine rekken. Alleen goed bij kleine stappen, kleine rotaties, overwegend plastische rek, isotroop gedrag. Afgeraden voor schalen en balken. | Zelden; liever `GDEF_LOG`. |
+| `GROT_GDEP` | Grote verplaatsingen en rotaties, **kleine rekken**. Code-Aster: `COQUE_3D` (alle wetten), `DKT` (alleen lineair elastisch), multivezelbalken. | Knik, slanke schalen, grote verplaatsingen in het algemeen (de bridge kiest per elset, zie boven). |
+| `SIMO_MIEHE` | Grote plastische rekken (o.a. `VMIS_ISOT_TRAC`). Alleen 3D/2D-volume-elementen. Niet-symmetrische tangentmatrix. | Grote plastische vervorming. |
+| `GDEF_LOG` | Grote rekken met logaritmische rekmaat (o.a. `VMIS_ISOT_*`). Alleen 3D/2D. Elastische rek moet klein blijven. | Grote plastische vervorming (omvormen, knippen). Eerste keus naast `SIMO_MIEHE`; let op de stagnatie in §2.2. |
+| `GREEN_LAGRANGE` | Green-Lagrange-rek. | Elastische volumes met grote verplaatsingen (NL-02a). |
+
+Opgelegde rotaties (`DDL_IMPO` DRX/DRY/DRZ) en starre koppelingen
+(`LIAISON_SOLIDE`) blijven ook met grote verplaatsingen kleine rotaties; een
+opgelegde rotatie boven ~6° geeft een WARNING (`_warn_large_rotations`). Een star
+deel draai je robuust via `#ASTER` (`ASTER_regels_voorbeelden.md` voorbeeld 9).
+
+### 2.4 Plasticiteit: `plastic_strain_definition`
+
+Code-Aster `TRACTION/SIGM` verwacht de spanning als functie van de **totale** rek.
+Het eerste punt is de vloeigrens; een punt met rek nul mag niet (EDF R&D, U4.43.01
+§5.1.1). De bridge rekent Mecway's hardingscurve om (instelling "Rekdefinitie
+hardingscurve"):
+
+| Waarde | Betekenis van de Mecway-rek | Omrekening |
+|---|---|---|
+| `plastic` | plastische rek | rek_totaal = rek_plastisch + σ/E |
+| `total` | totale rek | beginpunt (0, 0) vervalt |
+| `auto` (standaard) | afgeleid uit het eerste punt | (0, 0) of eerste rek > 0: total (zoals Mecway); (0, σ>0): plastic, met een WARNING |
+
+Mecway's hardingscurve gebruikt de **totale** rek (gemeten met Mecway/CCX headless op
+de staaf van NL-01, R-CURVE): de curve (0, 0), (σy/E, σy), (0,1, …) gaf de verwachte
+spanning en plastische rek; een curve die met (0, σy) begint, gaf in Mecway een
+onfysische uitkomst. `auto` leest daarom een curve met beginpunt (0, 0), of een curve
+die direct op de vloeigrens (σy/E, σy) begint, als totale rek. Ligt het eerste punt
+met rek > 0 niet op de elastische lijn (helling E), dan volgt een WARNING over de
+helling. Begint de curve met (0, σ > 0), dan leest `auto` hem als plastische rek, met
+een WARNING dat Mecway dezelfde curve als totale rek leest (de Mecway-oplossing kan
+dan afwijken); kies `plastic` of `total` om de melding te vermijden. Gemeten op NL-01
+met `auto`: curve met en zonder (0, 0) exact tot t = 3 (σ op t = 2: 433,49 MPa,
+analytisch), curve (0, 355 MPa) als plastische rek ook exact (R-CURVE). Controleer bij
+twijfel de vloeigrens in de `.comm` (eerste punt van de functie). Bilineaire plasticiteit:
+Mecway's *tangent modulus* is de plastische modulus H; de bridge zet
+`D_SIGM_EPSI` = E·H/(E+H) (NL-01).
+
+### 2.5 Tijdschema (dynamica): `schema`, `hht_alpha`
+
+`DYNA_NON_LINE/SCHEMA_TEMPS` (EDF R&D, U4.53.01, U2.06.13).
+
+| `schema` | Type | Wat de bridge zet | Opmerking |
+|---|---|---|---|
+| `HHT` (standaard `dyna_impl_3d`) | impliciet | `ALPHA=hht_alpha`, `FORMULATION='DEPLACEMENT'` | Volledig HHT-schema (CA-standaard `MODI_EQUI='OUI'`; Hilber e.a., 1977). DY-01a, DY-02, DY-03c. |
+| `NEWMARK` | impliciet | `FORMULATION='DEPLACEMENT'`, geen BETA/GAMMA | CA: β = 0,25, γ = 0,5 (trapeziumregel). Geen numerieke demping; kan niet-lineair instabiel zijn (U4.53.01). DY-01b/c/d (periodefout van orde 2, Hughes, 2000). |
+| `DIFF_CENT` (standaard `dyna_expl_3d`) | expliciet | `MASS_DIAG='OUI'`, `FORMULATION='ACCELERATION'` | Geen numerieke demping. DY-03a/b. |
+| `TCHAMWA` | expliciet | idem | Dempt hoge frequenties (CA: `PHI=1.05`). DY-03a met TCHAMWA binnen de tolerantie (R-TCHAMWA). |
+
+`hht_alpha` (HHT ALPHA): bridge -0,1, CA -0,1. Hoe negatiever, hoe meer numerieke
+demping. U2.06.13: begin bij -0,1; -0,3 is een bovengrens die nog bruikbaar is; doe een
+parameterstudie en kies de waarde het dichtst bij nul die nog een goede oplossing
+geeft. Met -0,3 volgde DY-01 het schema exact (periode +1,21 %, piek −0,87 %,
+R-ALPHA). Een staplast krijgt bij HHT in de eerste stap een iets te kleine impuls
+(Code-Aster gebruikt F₀ = 0; DY-01a: piek −0,44 %).
+
+**`MODI_EQUI`.** De bridge laat de CA-standaard `'OUI'` staan: het volledige
+HHT-schema, tweede orde, dat vooral hoge frequenties dempt en dat U2.06.13
+aanbeveelt (`'NON'` = gemodificeerde gemiddelde versnelling, eerste orde).
+
+### 2.6 Lineaire solver: `solver_nprec`, `lin_solver`, `lin_solver_resi`
+
+`SOLVEUR=_F(METHODE='MUMPS', NPREC=...)`. NPREC is het aantal decimalen dat bij
+de factorisatie verloren mag gaan voor Code-Aster de matrix singulier noemt.
+
+| | `lin_static_3d` | niet-lineair, modaal, knik, thermisch | CA |
+|---|---|---|---|
+| `solver_nprec` (MUMPS NPREC) | 8 | 8 | 8 |
+
+Bij niet-lineair telt een singuliere matrix als `ERREUR` en leidt (impliciet
+dynamisch) tot stapverkleining (U4.34.03). Een vrij bewegend deel geeft in
+`MECA_STATIQUE` met -1 `FACTOR_57` (foutgrens te groot) en met 8 `FACTOR_11` (R-FREE);
+beide stoppen de run. In `STAT_NON_LINE`/`DYNA_NON_LINE` controleert MUMPS de
+foutgrens standaard niet (`RESI_RELA` = -1 voor niet-lineaire commando's, catalogus
+`c_solveur.py`); NPREC is daar de enige singulariteitscontrole. NL-03a
+(lijncontact, `STANDARD`) rekende met -1 door, maar 1,6 % naast de contactkracht
+(R-NPREC-CONTACT): gebruik daar `PENALISATION` (§3.1).
+
+**Statische analyse (`lin_static_3d`): `lin_solver` en `lin_solver_resi`.**
+`MECA_STATIQUE` lost één stelsel Ku = F op. De bridge zet daar altijd `INFO=2`
+bij, zodat de statistiek van de oplosser in de `.mess` komt (convergentiescherm,
+§4.4). Dat is ongeveer 15 kB tekst, ook bij 270 000 vergelijkingen (gemeten).
+
+| Instelling (label) | Waarden | Code-Aster |
+|---|---|---|
+| `lin_solver` (Lineaire oplosser) | `MUMPS` (standaard): directe oplosser, factoriseert de matrix | `SOLVEUR=_F(METHODE='MUMPS', NPREC=..., RESI_RELA=...)` |
+| | `GCPC`: iteratief, geconjugeerde gradiënt met onvolledige factorisatie | `SOLVEUR=_F(METHODE='GCPC', PRE_COND='LDLT_INC', RESI_RELA=...)` |
+| `lin_solver_resi` (Nauwkeurigheid oplosser) | `RESI_RELA`, standaard 1e-6 (= CA-standaard bij `MECA_STATIQUE`) | |
+
+- **MUMPS**: `RESI_RELA` is de grens voor de *geschatte relatieve fout in de
+  verplaatsingen*. MUMPS schat die als conditiegetal × 'backward error'; is ze
+  groter dan `RESI_RELA`, dan stopt Code-Aster met `FACTOR_57` (EDF R&D, U4.50.01
+  §3.5.3; U2.08.03 §7.2.1). Met `solver_nprec` = -1 is dit de enige controle op een
+  singuliere matrix (U2.08.03 tabel 7.1-1, geval 5). Kies MUMPS tenzij je een
+  reden hebt: het is robuust en meestal het snelst.
+- **GCPC**: `RESI_RELA` is het convergentiecriterium ‖r‖/‖f‖ (restkracht gedeeld
+  door de belasting). Maximaal aantal iteraties: het aantal vergelijkingen / 2
+  (`NMAX_ITER=0`; daarna stopt Code-Aster met `ALGELINE4_3`). GCPC gebruikt minder
+  geheugen, maar convergeert alleen goed bij een goed geconditioneerd model
+  (U2.08.03 §3: conditiegetal < 1e4); bij slanke constructies (balken van
+  volume-elementen) zijn honderden iteraties normaal: de balk van LS-02 (hex8) had
+  232 iteraties bij 20 169 vergelijkingen en 499 bij 141 321, met dezelfde uitkomst
+  als MUMPS binnen de tolerantie (R-GCPC). Zie je in het convergentiescherm een lange
+  vlakke lijn, gebruik dan MUMPS.
+- **PETSC** staat in de catalogus, maar de Windows-versie van Code-Aster is
+  sequentieel en heeft geen PETSc (`FERMETUR_10`, gezien in een testrun;
+  U4.50.01 §3.7). De bridge biedt het daarom niet aan.
+
+### 2.7 Overig
+
+`time_limit` (Tijdslimiet run_aster) [s] en `memory_limit` (Geheugenlimiet run_aster)
+[MB] gaan naar de `.export` (limieten van `run_aster`). Een afgebroken run door de
+tijdslimiet levert geen volledige resultaten.
+
+`energy_balance` (Energiebalans; alleen impliciete dynamica, standaard uit): zie §4.4.
+
+`error_estimator` (Foutschatter; alleen statisch, standaard aan): geschatte
+discretisatiefout per element met `CALC_ERREUR` `ERME`, zie
+[Foutschatter.md](Foutschatter.md).
+
+`crit_stab` (Stabiliteit per stap, standaard uit) en `imperfection_*` (knikvorm als
+imperfectie, standaard amplitude 0 = geen; alleen niet-lineair statisch): `CRIT_STAB`
+in `STAT_NON_LINE` en een lineaire knikvorm als voorvervorming van het mesh, zie
+[Modaal_en_knik.md](Modaal_en_knik.md) §5. Met de standaard `deformation` (grote
+verplaatsingen) is `CRIT_STAB` geen lastfactor maar een eigenwaarde die naar 0 gaat.
+
+### 2.8 Modaal, knik en thermisch
+
+De instellingen van modaal en knik (`modal_modes`, `modal_shift_hz`, `modal_norm`,
+`modal_tolerance`) staan in [Modaal_en_knik.md](Modaal_en_knik.md) §1.2, die van
+thermisch (`theta` en de Newton-instellingen van `THER_NON_LINE`) in
+[Thermisch.md](Thermisch.md) §2. Onderbouwing en controleruns:
+[Standaardinstellingen_en_aannames.md](Standaardinstellingen_en_aannames.md) §3.6 tot
+§3.8. Knik zoekt altijd de kleinste kniklastfactoren (`OPTION='PLUS_PETITE'`), zoals
+Mecway; een zoekcentrum (`OPTION='CENTRE'`) negeert `CHAR_CRIT` in Code-Aster 17.4
+(R-BSHIFT) en is daarom geen instelling.
+
+---
+
+## 3. Contact
+
+### 3.1 Wat de bridge genereert
+
+Mecway `contact2` wordt:
+
+```
+contact = DEFI_CONTACT(
+    MODELE=model,
+    FORMULATION='CONTINUE',
+    FROTTEMENT='SANS',          # 'COULOMB' als een paar wrijving > 0 heeft
+    ZONE=(_F(GROUP_MA_MAIT='<master>', GROUP_MA_ESCL='<slave>'),),  # + COULOMB=mu
+)
+```
+
+- **Formulering (`contact_algo`, label "Contactmethode").** `CONTINUE` met per zone
+  `ALGO_CONT`:
+  - `STANDARD` (standaard, CA-standaard): augmented-Lagrangiaan (EDF R&D, U4.44.11),
+    met contactdruk als extra onbekende op de slave-kant; geen stijfheid nodig, geen
+    penetratie.
+  - `PENALISATION`: contactdruk = `COEF_PENA_CONT` × penetratie, met
+    `COEF_PENA_CONT` = Mecway's *normal stiffness* (Pa/m); bij wrijving
+    `ALGO_FROT='PENALISATION'` met `COEF_PENA_FROT` = *tangential stiffness* (is die 0,
+    dan Lagrange-wrijving). Zo rekent Mecway zelf (Mecway, 2026, §9.9.2). Kies dit als
+    `STANDARD` het contact verliest of stopt met `MECANONLINE9_4` met `LAGS_C` in de
+    melding (lijncontact). Geverifieerd: de penetratie is exact p/kn (NL-03d/f) en
+    lijncontact tussen hex20-balken is exact (NL-03b), waar `STANDARD` faalt (NL-03a).
+    Tegen Mecway (headless): Samples/PipeClip met `PENALISATION` + `MAXI` volgt de
+    clipverplaatsing binnen 2..8 % (met `STANDARD` ging het contact verloren);
+    Tutorials/AssemblyWithContact (Fixed_support) 21,74 tegen 21,97 µm (met
+    `STANDARD`: `MECANONLINE9_4`).
+
+  Verschil met Mecway bij `STANDARD`: Mecway "unilateral elastic" is een
+  penalty-methode met een stijfheid per oppervlak (Mecway, 2026, §9.9):
+  Mecway laat iets penetratie toe, Code-Aster op de slave-punten niet (KNOWN_BUGS 43).
+- **Integratie.** Op kwadratische slave-vlakken (tet10, hex20, quad8 ...) zet de bridge
+  `INTEGRATION='NCOTES'`; lineaire vlakken houden de CA-standaard `'AUTO'`. Met
+  `'AUTO'` haalde de contact-patchtest op hex20 met niet-passende meshes het niet
+  (1,5 tot 4,6 % fout), met `'NCOTES'` exact (NL-03c tot f). Code-Aster meldt dan het
+  onschuldige alarm `CONTACT3_16` (geen `CONT_NOEU`). Een eigen
+  `#ASTER-ZONE INTEGRATION=...` gaat voor.
+- **Mecway-contacttype.** Mecway kent `unilateralelastic` (contact) en
+  `bondedelastic`, `bondedtie` en `bondedce` (verlijmd). Alleen
+  `unilateralelastic` wordt `DEFI_CONTACT`. Een verlijmd paar wordt
+  `AFFE_CHAR_MECA/LIAISON_MAIL` (star; `bondedelastic` zonder de stijfheid, gemeld):
+  `TYPE_RACCORD='MASSIF'` (volume op volume, master = de volume-elementen achter de
+  vlakken), `'COQUE'` (schaal op schaal) of `'MASSIF_COQUE'` (volume-slave op
+  schaal-master). Schaal-slave op volume-master: een schaalvlak koppelt de
+  verplaatsingen (`'MASSIF'` met de schaalknopen); schaalranden van één component
+  worden stijf verbonden (`'COQUE_MASSIF'` met de dikte en het normaalveld van de
+  schaal), anders werkt de rand als scharnier (WARNING). Balkuiteinden als slave
+  worden gemeld en overgeslagen (KNOWN_BUGS 21).
+- **Alleen niet-lineair.** `contact2` gaat alleen naar `STAT_NON_LINE`/
+  `DYNA_NON_LINE`; met `lin_static_3d` (ook S30 via `auto`) stopt de bridge met een
+  ERROR. Kies bij contact `nonlin_static_3d`.
+- **Compression only support** (Mecway) wordt `DEFI_CONTACT
+  FORMULATION='LIAISON_UNIL'` (U4.44.11 §3.8), alleen in een model zonder
+  `contact2` (één `DEFI_CONTACT` per berekening; KNOWN_BUGS 22).
+- **Wrijving.** Heeft minstens één paar een wrijvingscoëfficiënt > 0, dan
+  `FROTTEMENT='COULOMB'` voor alle zones, met `COULOMB=` per zone (0 voor paren
+  zonder wrijving).
+- **Adaptatie.** CA-standaard `ADAPTATION='CYCLAGE'`: wisselt een contactpunt
+  steeds van status, dan schakelt Code-Aster daar zelf over op penalty met een
+  maximale penetratie (U4.44.11, "Operand ADAPTATION"; U2.04.04 §4.1). Controleer
+  dan de penetratie in de convergentietabel in de `.mess`.
+- **Vlakken.** Alleen vlakken van volume-elementen en schaalvlakken. Andere paren
+  worden gemeld (ERROR in `<model>_<run-id>_bridge_log.txt`) en overgeslagen.
+- Een **onderdrukt** contact in Mecway (`suppressed`) wordt overgeslagen. Handig
+  om contact tijdelijk uit te zetten (§4).
+- **Vastgezette slave-knopen.** Slave-knopen die ook in een fixed support zitten,
+  sluit de bridge per zone uit met `SANS_GROUP_NO` (U4.44.11 §3.1.3;
+  `bridge_mesh._exclude_fixed_slaves`, INFO in het log). Een eigen
+  `#ASTER-ZONE SANS_GROUP_NO=...` gaat voor. Andere voorwaarden op slave-knopen
+  (symmetry, displacement, ...) worden niet uitgesloten (§3.7).
+- **Grove slave.** Is de slave-kant duidelijk grover dan de master (elementmaat
+  meer dan 2× zo groot), dan geeft de bridge een WARNING (`bridge_mesh._check_contact_sides`):
+  de fijne master kan dan zonder contactkracht door de slave dringen. De bridge
+  wisselt niet zelf (§3.2).
+
+### 3.2 Master en slave
+
+De bridge neemt master en slave over zoals in Mecway ingesteld. Kies ze goed;
+Code-Aster voorkomt alleen dat slave-punten in het master-vlak dringen, andersom
+kan wel (EDF R&D, U2.04.04 §2.1).
+
+| Master (`GROUP_MA_MAIT`) als het vlak... | Slave (`GROUP_MA_ESCL`) als het vlak... |
+|---|---|
+| star is | gekromd is |
+| het andere bedekt (groter is) | kleiner is |
+| een veel grotere schijnbare stijfheid (N/m) heeft | een kleine schijnbare stijfheid heeft |
+| veel grover gemesht is | veel fijner gemesht is |
+
+(U2.04.04 §2.2.1 en §2.2.2.) Kort: master = stijf gereedschap / grof vlak,
+slave = fijn of vervormend vlak. Een scherpe hoek die je niet kunt vermijden: het
+vlak met die hoek wordt slave (U2.04.04, "Sharp angles"). Bij convergentieproblemen,
+vooral met plasticiteit, kan het helpen de rollen om te draaien (U2.04.04 §2.2.3).
+Veel master-knopen in het slave-vlak na de berekening: mesh te grof of te groot
+verschil in fijnheid (U2.04.04 §2.2.5).
+
+### 3.3 Normalen
+
+Contactvlakken moeten een **naar buiten** gerichte normaal hebben (U2.04.04,
+"Orientation of the normals"; U4.44.11).
+
+- De bridge zet `MODI_MAILLAGE ORIE_PEAU` op de contact- (en druk-)vlakken van
+  volume-elementen.
+- Voor schaalvlakken zet de bridge geen `ORIE_NORM_COQUE`.
+- Code-Aster controleert de oriëntatie standaard en stopt bij een fout
+  (`VERI_NORM='OUI'`, catalogus).
+
+### 3.4 Beginspleet en beginpenetratie
+
+De bridge zet `CONTACT_INIT` niet, dus geldt de CA-standaard `'INTERPENETRE'`
+(catalogus 17.4, U4.44.11): aan het begin zijn alle punten met spleet nul of met
+penetratie actief. Tolerantie: 1e-6 × de kleinste ribbe (U2.04.04 §4.4.1).
+
+- Een beginpenetratie wordt weggedrukt en **geeft krachten**; het is geen
+  geometrische correctie (U2.04.04 §4.4.1). Zorg dus in Mecway voor een mesh
+  zonder overlap.
+- Andere waarden (niet via de bridge): `'OUI'` activeert alle punten, ook met
+  spleet (handig als vlakken net niet sluiten); `'NON'` activeert niets.
+- **Delen die alleen door contact op hun plaats blijven.** Statisch is de matrix
+  dan singulier zolang er geen contact is. Oplossingen (U2.04.04 §4.4, §4.1; Mecway,
+  2026, §6.2.3): begincontact (spleet nul), zwakke veren (elastic support), of eerst
+  een stap met opgelegde verplaatsing tot er contact is. In dynamica mag een
+  star-lichaambeweging wel.
+
+### 3.5 Zones die slave-knopen delen
+
+Code-Aster verbiedt knopen die in de slave-vlakken van twee zones zitten
+(melding `CONTACT2_16`; U2.04.04 §2.1, U4.44.11). Mecway staat dat wel toe
+(bijvoorbeeld een profiel dat slave is tegen een mes én tegen een contour).
+
+De bridge voegt zulke paren samen tot één zone: master = unie van de masters,
+slave = unie van de slaves (`DEFI_GROUP ... UNION`, groepen `CMAIT<n>`/`CESCL<n>`).
+Wrijving: de grootste coëfficiënt; staat er een WARNING in `<model>_<run-id>_bridge_log.txt` als
+die verschilden (KNOWN_BUGS 10). De oplossing die `CONTACT2_16` zelf voorstelt (master
+en slave wisselen) gebruikt de bridge niet: dan wordt het stijve gereedschap slave.
+
+Master- en slave-vlak van **één** zone mogen ook geen knopen delen, anders stopt
+Code-Aster (U2.04.04 §2.3.4). De bridge sluit zulke knopen niet uit.
+
+### 3.6 Self-contact
+
+Niet mogelijk in Code-Aster, behalve als je het contactgebied vooraf kent en als
+twee aparte vlakken opgeeft (U2.04.04 §2.2). De bridge meldt een self-contact
+(of master = slave) als ERROR en slaat het over.
+
+### 3.7 Contact en randvoorwaarden (symmetrie)
+
+Ligt een slave-knoop ook op een symmetrievlak of een andere randvoorwaarde, dan
+kan de wrijvingsvoorwaarde daarmee botsen; de matrix wordt singulier zodra er
+contact is (U2.04.04 §4.7). Code-Aster-oplossingen:
+
+- `SANS_GROUP_NO`: geen contact op die knopen, de randvoorwaarde wint
+  (U2.04.04 §2.3.4). De bridge zet dit zelf voor knopen van een **fixed
+  support** (§3.1); voor andere voorwaarden met `#ASTER-ZONE`;
+- `SANS_GROUP_NO_FR` met `DIRE_EXCL_FROT`: sluit één wrijvingsrichting uit
+  (U2.04.04 §4.7; niet door de bridge gezet);
+- `ALGO_CONT='LAC'` heeft dit probleem niet (U2.04.04 §3.1.4).
+
+Voorwaarden die knopen delen (pinned, frictionless, symmetry, displacement,
+koppelingen) meldt de bridge vooraf met een WARNING met de selectienamen
+(`bridge_mesh._report_constraint_overlaps`); oplossen doe je in Mecway. Zie ook
+KNOWN_BUGS 8 (dubbele randvoorwaarden).
+
+### 3.8 Alternatieven in Code-Aster
+
+De bridge zet deze opties (behalve `LIAISON_MAIL`) niet zelf. Je kunt ze meegeven met `#ASTER`-regels
+(§3.9), bijvoorbeeld `#ASTER-ZONE ALGO_CONT='PENALISATION'`.
+
+| Optie | Waarvoor | Bron |
+|---|---|---|
+| `ALGO_CONT='PENALISATION'` met `ADAPTATION='ADAPT_COEF'` (CONTINUE) | Penalty zonder Mecway-stijfheid: Code-Aster kiest de stijfheid zelf uit `PENE_MAXI` (standaard 1e-2 × kleinste ribbe). Penalty met Mecway's stijfheid is de instelling `contact_algo` (§3.1). | U4.44.11, U2.04.04 §4.12 |
+| `FORMULATION='DISCRETE'` | Weinig contactvrijheidsgraden zonder wrijving (`CONTRAINTE`); `GCP` voor veel. Kan geen delen aan die alleen door contact op hun plaats blijven. Met wrijving: liever CONTINUE. | U2.04.04 §3.4, §4.4 |
+| `ALGO_CONT='LAC'` | Sterk niet-passende meshes, nauwkeurige contactdruk. Vraagt `CREA_MAILLAGE/DECOUPE_LAC`. Volgens U2.04.04 §3.1.4 nog zonder wrijving; de 17.4-catalogus accepteert LAC wel in het wrijvingsblok (NIET geverifieerd of dat werkt). | U2.04.04 §2.1, §3.1.4 |
+| `GLISSIERE='OUI'` | Blijvend contact: vlakken blijven op elkaar (bilateraal), mogen glijden. | U4.44.11, U2.04.04 §4.1 |
+| `AFFE_CHAR_MECA/LIAISON_MAIL` | Verlijmen van twee vlakken, ook met niet-passende meshes (geen contact). De bridge gebruikt het voor Mecway's verlijmde contact (§3.1); ook bruikbaar voor zeer lokaal contact of als voorberekening. | U4.44.01 §5.13, U2.04.04 §4.1, §4.5.2 |
+| Veren `DIS_T` + `DIS_CHOC` | Puntcontact in een vaste richting (penalty); niet voor grote verplaatsingen. | U2.04.04 §4.10 |
+| `CONTACT_INIT`, `SANS_GROUP_NO(_FR)` | Zie §3.4 en §3.7. | U4.44.11 |
+
+### 3.9 Eigen Code-Aster-invoer: `#ASTER`-regels
+
+Voor wat Mecway niet kan invoeren, zet je `#ASTER`-regels in een vrij tekstveld
+van Mecway (OpenRadioss: `#ASTER`, Mystran: `$ASTER`, CCX: `**ASTER`). Syntax,
+selectienamen (`<<Mecway-selectie>>`), valkuilen en doorgerekende voorbeelden
+(o.a. `#ASTER-CONTACT`, `#ASTER-ZONE` en `#ASTER-OPTIE` bij contact) staan in
+[`ASTER_regels_voorbeelden.md`](ASTER_regels_voorbeelden.md).
+
+---
+
+## 4. "Mijn berekening convergeert niet"
+
+### 4.1 Wat de bridge dan doet
+
+- Code-Aster stopt `STAT_NON_LINE`/`DYNA_NON_LINE` met een `ConvergenceError`,
+  meestal `MECANONLINE9_7` (te veel Newton-iteraties). De opgeslagen stappen blijven
+  bewaard (EDF R&D, U4.51.03, "Shutdown management"; tekst van `MECANONLINE9_7` in 17.4).
+- De bridge vangt die fout op (`try/except` in de `.comm`), schrijft
+  `BRIDGE_ONVOLLEDIG <tijd>` in de `.mess` en gaat door met de nabewerking.
+- In Mecway verschijnt de melding met de foutcode, een advies en "Laatste tijdstip
+  met resultaten: ... s".
+- **Dynamisch**: alle uitvoertijden tot dat tijdstip gaan naar Mecway.
+- **Statisch**: route `liml` alle gearchiveerde stappen tot dat tijdstip, route
+  `tabel` alleen het laatst bereikte tijdstip (§2.1).
+- Een andere fout dan `MECANONLINE*` (bijv. `DVP_2`) stopt de run zonder resultaten.
+- Andere foutcodes, met oorzaak en oplossingen: [`Foutmeldingen_CodeAster.md`](Foutmeldingen_CodeAster.md).
+
+### 4.2 Stappenplan
+
+Werk van boven naar beneden. Bron: EDF R&D, U2.04.04 §4.1 en §4.5, U2.04.01; Mecway
+(2026) §6.2.3. Volgens U2.04.04 §4.1 hebben contactproblemen "very often" een
+fysische oorzaak, geen numerieke.
+
+1. **Lees de melding.** Kijk in `<model>_<run-id>_bridge_log.txt` (overgeslagen contacten, WARNINGs)
+   en de `.mess` (convergentietabel: residu, contactstatus, penetratie).
+2. **Controleer het model.**
+   - master/slave-keuze (§3.2), normalen (§3.3);
+   - beginspleten en -penetraties (§3.4);
+   - delen die alleen via contact vastzitten (§3.4);
+   - randvoorwaarden op slave-knopen (§3.7);
+   - overgeslagen contactparen of self-contact (§3.6);
+   - mislukte integratie van de materiaalwet kan komen door een element dat door
+     het contact binnenstebuiten klapt (U2.04.04 §4.1, figuur 4.1-1).
+3. **Kijk naar het residu** (convergentiescherm, grafiek (a)):
+   - `RESI_GLOB_RELA` blijft hoog terwijl `RESI_GLOB_MAXI` heel klein is (beweging
+     zonder weerstand): `convergence_criterion` = `MAXI` (§2.2, R-RIGID);
+   - `RESI_GLOB_RELA` stagneert net boven het criterium (plastische volumes,
+     `GDEF_LOG`; bijv. ~2e-6 bij 1e-6): `convergence_resi_rela` = 1e-5 (de standaard),
+     of `convergence_criterion` = `RELA_OF_MAXI` met `convergence_resi_maxi` boven de
+     absolute rest waarop het stagneert (§2.2, NL-01, NL-01b).
+4. **Ontkoppel de niet-lineariteiten** (U2.04.04 §4.5.1). Zet ze niet allemaal
+   tegelijk aan:
+   1. alleen contact, lineair elastisch materiaal, `deformation` = `PETIT`
+      (haal in Mecway de hardingscurve weg);
+   2. plasticiteit zonder contact (contact in Mecway onderdrukken);
+   3. eventueel grote vervorming zonder contact en zonder plasticiteit; lukt dat
+      niet, probeer een andere `deformation` (`SIMO_MIEHE`, `GDEF_LOG`,
+      `PETIT_REAC`).
+5. **Wrijving later.** Begin zonder wrijving (coëfficiënt 0 in Mecway)
+   (U2.04.04 §4.1).
+6. **Contactmethode.** Bij lijncontact, contact dat verloren gaat of
+   `MECANONLINE9_4` met `LAGS_C`: `contact_algo` = `PENALISATION` (§3.1, NL-03b).
+7. **Kleinere stappen.** Verhoog `substeps_per_interval` (statisch) of
+   `substeps_per_output` (impliciet). Code-Aster knipt een mislukte stap al zelf
+   (`DECOUPE`, tot 6 niveaus, §2.1); kleinere beginstappen helpen als hij steeds
+   op hetzelfde tijdstip vastloopt. Niet bij stagnatie van het residu (stap 3):
+   kleinere stappen maken dat erger (R-SUB40).
+8. **Newton.** Houd `newton_reac_iter` = 1 (R-REAC0). Verhoog `newton_max_iter` bij
+   contact (U4.51.03). `PREDICTION='ELASTIQUE'` helpt volgens U2.04.04 §4.5.2, maar
+   is niet instelbaar in de bridge.
+9. **Grote rekken.** Boven ca. 5 % rek: `GDEF_LOG` of `SIMO_MIEHE` in plaats van
+   `PETIT` (§2.3).
+10. **Laatste redmiddel voor quasi-statisch:** reken langzaam dynamisch
+    (`dyna_impl_3d`) over een lange tijd, met de echte dichtheid en grote stappen.
+    De massa stabiliseert; controleer dat de traagheidskrachten klein blijven
+    (U2.04.04 §4.5.3).
+11. **Geconvergeerd is niet hetzelfde als juist** (U2.04.04 §4.1). Controleer
+    penetratie, oscillaties in de contactdruk en zo nodig een meshconvergentiestudie.
+
+Niet als instelling, wel met `#ASTER-CONTACT`/`#ASTER-ZONE` (§3.9), volgens
+U2.04.04: `ADAPTATION` (§4.12), `ALGO_RESO_FROT='POINT_FIXE'` bij wrijving (§4.1),
+`RESI_GEOM`, `ITER_GEOM_MAXI`, `LISSAGE='OUI'` bij gekromde grove vlakken (§2.4.3).
+Alleen met de hand in de `.comm`: een voorspellende berekening met
+`PREDICTION='DEPL_CALCULE'` (§4.1).
+
+### 4.3 Wat Code-Aster niet kan
+
+- **Geen elementverwijdering.** Doorsnijden of bezwijken waarbij elementen
+  verdwijnen (erosie, zoals in expliciete crashcodes) staat niet in de gelezen
+  Code-Aster-documentatie (NIET gevonden). Schade wordt als interne variabele
+  gemodelleerd; het element blijft in het mesh (bijv. `ENDO_HETEROGENE`:
+  "gebroken" element = schadevariabele 1, EDF R&D, U4.51.11). Een berekening die tot
+  doorsnijden gaat, convergeert dus niet meer of geeft zwaar vervormde elementen.
+  De bridge kan wel **bezwijken van elementen** nabootsen: een element boven een
+  grens voor de plastische rek krijgt een zeer lage stijfheid en spanning nul
+  (niet-lineair statisch en dynamisch; [`Bezwijken.md`](Bezwijken.md)).
+- **Schade- en breukmodellen bestaan wel**, maar de bridge ondersteunt ze niet
+  (alleen `ELAS`, `VMIS_ISOT_*`/`VMIS_CINE_LINE`, `CABLE` en de discrete wetten, §1):
+  - `ROUSSELIER` (ductiele breuk door holtegroei; met `SIMO_MIEHE`);
+  - `ENDO_*`-wetten (o.a. `ENDO_ISOT_BETON`, `ENDO_SCALAIRE`, `ENDO_CARRE`);
+  - cohesieve zones `CZM_*` met voegelementen, of in XFEM (`ALGO_CONT='CZM'`).
+  (U4.51.11, U4.44.11.)
+- **HOMARD** (`MACR_ADAP_MAIL`) is mesh-adaptatie: het verfijnt of vergroft een
+  bestaand mesh op basis van een veld of een geometrische regel, en kan velden
+  overzetten (EDF R&D, U7.03.01). Het is geen automatisch hermeshen van vervormde
+  elementen en geen elementverwijdering. Niet ondersteund door de bridge.
+
+### 4.4 Convergentiescherm
+
+Bij elke analyse opent de bridge een apart venster (startscherm: "Convergentie- en
+meldingenscherm", standaard aan). Bij een niet-lineaire analyse (`STAT_NON_LINE`, `DYNA_NON_LINE`,
+`THER_NON_LINE`) volgt het de convergentie live; bij een lineair-statische
+analyse (`MECA_STATIQUE`) toont het de lineaire oplosser (zie *Lineaire analyse*
+hieronder); bij `THER_LINEAIRE` de meldingen (fouten en alarmen met uitleg in de
+gekozen taal) en de diagnose. Achteraf: de
+knop *Convergentiescherm* in het hoofdvenster van de bridge toont de laatste run uit
+de werkmap; met "Open .mess ..." kies je een ander bestand. Het scherm blijft open
+naast Mecway en het hoofdvenster. Het venster draait in de Python van Code-Aster; sluiten
+heeft geen invloed op de run of op Mecway.
+
+| Grafiek | Wat je ziet | Waar je op let |
+|---|---|---|
+| (a) Residu | `RESI_GLOB_RELA` (links, rode lijn = criterium) en `RESI_GLOB_MAXI` (rechts) per Newton-iteratie, voor de laatste N rekenpogingen | Gezond: per poging een snelle daling tot onder de rode lijn. Blijft het residu rond 1 of springt het op en neer, kijk dan naar (d). Blijft `RELA` hoog bij een `MAXI` van ~0, of stagneert `RELA` net boven de lijn: §4.2 stap 3. |
+| (b) Voortgang | Tijdstip per rekenpoging; rood = mislukt (Code-Aster deelt de stap op), grijze trap = opdelingsniveau | Veel rode punten op hetzelfde tijdstip: de berekening loopt daar vast. Kijk wat er dan fysisch gebeurt (eerste contact, doorsnijden, §4.3). |
+| (c) Newton per poging | Iteraties per poging met `ITER_GLOB_MAXI`; zwarte punten = geometrische contactlussen | Stijgend aantal iteraties vóór een mislukking: de stap is te groot of het contact verandert sterk (§4.2 stap 7 en 8). |
+| (d) Contact | Per Newton-iteratie: statuswisselingen (grijze balken, kolom `VARI. CONT.`), `PRESSURE ERROR` en `CRITERE VALEUR` aan het eind van een geometrische lus (G2, G3 ...) | Gaan de statuswisselingen niet naar 0, dan springen punten tussen contact en geen contact: controleer master/slave, normalen en beginspleten (§3.2-3.4). Zonder contact en met `energy_balance` aan: de energiebalans. |
+| (e) Meldingen | Fouten en alarmen met de Code-Aster-code en uitleg | "Pivot nul ... component LAGS_C": contactvoorwaarde overbepaald of een deel hangt alleen aan contact (§3.4, §3.7). "Python-fout in `<model>_<run-id>.comm`": meestal een tikfout in `#ASTER`-regels. |
+
+Onder de grafieken staan de details van de gekozen poging (schuif "Poging" of klik
+in (b)/(c)): aantal contactliaisons, statuswisselingen, de knoop met het grootste
+residu en de CPU-tijd. De geschatte resttijd volgt uit het percentage van
+Code-Aster en is ruw. Dat `VARI. CONT.` het aantal statuswisselingen is, is een
+lezing van de bridge; de U-documentatie zegt het niet zo (NIET geverifieerd).
+
+`energy_balance` (Energiebalans; alleen impliciete dynamica, standaard uit) zet
+`ENERGIE=_F()` in `DYNA_NON_LINE` (EDF R&D, U4.53.01 §3.22); de uitkomst verandert
+niet (R-ENERGY). Met contact `CONTINUE` stopt Code-Aster dan met `MECANONLINE5_15`;
+de bridge laat het in dat geval weg en meldt dat in het log.
+
+#### Lineaire analyse (`MECA_STATIQUE`)
+
+Een lineaire analyse heeft geen Newton-iteraties: Code-Aster bouwt de
+stijfheidsmatrix en lost Ku = F één keer op. Zoals de solver-monitor van
+gangbare pre/post-software toont het scherm dan vier kaarten (de bridge zet
+`INFO=2` in `MECA_STATIQUE`, §2.6):
+
+| Kaart | Wat je ziet | Waar je op let |
+|---|---|---|
+| (a) Stelsel en oplosser | Aantal vergelijkingen (fysieke vrijheidsgraden + Lagrange-parameters van opleggingen en koppelingen), knopen, niet-nul-termen en vulling van de matrix; bij MUMPS ook de ordening (METIS, AMF ...), termen in de factoren, het werk in flop, het geheugen en de pivots; de criteria (`RESI_RELA`, `NPREC`) | Geheugen bijna gelijk aan `memory_limit`: verhoog die of gebruik GCPC. Oranje pivots: zie (d). |
+| (b) Tijdverloop per fase | Stijfheidsmatrix (elementen + assemblage), analyse (ordening), factorisatie, belastingsvector, oplossen, spanningen + opslag; tijdens de run loopt de actieve fase (blauw) live mee | Bij grote modellen domineert de factorisatie. MUMPS meldt pas aan het eind van een fase dat die klaar is; het geschatte werk (flop) staat in (a). |
+| (c) Kwaliteit (MUMPS) | Op log-schaal: geschaald residu, 'backward errors' ω₁/ω₂, de foutgrens (rood gestippeld: `RESI_RELA`) en de conditiegetallen (groen < 1e4, oranje > 1e12) | De foutgrens moet links van de rode lijn liggen. |
+| (c) Residu (GCPC) | Relatief residu ‖r‖/‖f‖ per iteratie op log-schaal, met `RESI_RELA` | Een lange vlakke trap = trage convergentie. |
+| (d) Beoordeling | Groen = in orde, grijs = informatie, oranje = let op, rood = fout, met uitleg | Zie de tabel hieronder. |
+
+Wat de getallen betekenen (EDF R&D, U2.08.03 §7.2.1; MUMPS-handleiding: RINFOG(6)-(11)):
+
+- **Foutgrens** (RINFOG(9)): bovengrens voor de relatieve fout in de
+  verplaatsingen, ongeveer conditiegetal × backward error. Code-Aster vergelijkt
+  hem met `RESI_RELA`; groter = stop met `FACTOR_57`. In de testmodellen
+  (252 tot 268 569 vergelijkingen): 1e-11 tot 1e-8.
+- **Backward error** ω₁, ω₂ (RINFOG(7)/(8)): hoe goed de berekende oplossing het
+  stelsel zelf oplost. Bij een gezonde factorisatie in de orde van de
+  machineprecisie (~1e-15). Groter dan 1e-12 (grens van de bridge) wijst op
+  numerieke moeite van de factorisatie.
+- **Conditiegetal** (RINFOG(10)/(11)): gevoeligheid van de oplossing voor
+  afrondfouten. Volgens U2.08.03 ligt het tussen 1e4 (goed geconditioneerd) en
+  1e20 (zeer slecht); in de testmodellen 5e4 tot 2e7. Boven 1e12
+  wijst het op een (bijna) singuliere matrix (U2.08.03 §7.1): een deel dat niet of nauwelijks is
+  vastgehouden, een mechanisme, of extreme stijfheidsverschillen (bijv. een
+  zeer stijve veer naast een slap deel). Gemeten: 2e16 bij een blok dat alleen in
+  X is vastgehouden (R-FREE: 5,8e16, foutgrens 12,6).
+- **Residu voor/na iteratieve verfijning**: MUMPS verbetert de oplossing met
+  enkele extra stappen als dat helpt (`POSTTRAITEMENTS='AUTO'`, maximaal 4,
+  U4.50.01 §3.5.3); 0 stappen betekent dat de eerste oplossing al goed was.
+- **Negatieve pivots**: een stelsel met Lagrange-parameters is niet positief
+  definiet; in de testruns was het aantal negatieve pivots gelijk aan het aantal
+  Lagrange-parameters. Zijn het er meer, dan is de stijfheid zelf niet positief
+  definiet (mechanisme of negatieve stijfheid; gemeten: 10 bij 8 Lagrange met een
+  vrij bewegend blok). Dit is een afleiding van de bridge (NIET geverifieerd in de
+  U-documentatie).
+- **Uitgestelde pivots** (INFOG(13)): MUMPS moest numeriek pivoteren; een paar is
+  onschuldig, veel wijst op een slecht geschaald stelsel.
+- **GCPC**: Code-Aster schrijft een iteratie alleen als het residu met een factor
+  10 gedaald is (`gcpc.F90`, `paraaf = 0.1`; elke iteratie alleen bij `INFO=3`,
+  dat `MECA_STATIQUE` niet toestaat). De grafiek is daarom een trap. Meer dan
+  20 % van het aantal vergelijkingen aan iteraties markeert de bridge als traag
+  (keuze van de bridge).
+
+Bij een melding `FACTOR_57` (foutgrens > `RESI_RELA`) is de oorzaak bijna altijd
+de invoer, niet de oplosser: zoek het deel dat vrij kan bewegen (zie
+[`Foutmeldingen_CodeAster.md`](Foutmeldingen_CodeAster.md)). `RESI_RELA` groter zetten
+verbergt dat alleen (U2.08.03 §7.2.1: "doit être prise au sérieux").
+
+---
+
+## 5. Bronnen
+
+**Code-Aster-documentatie** (EDF R&D, versie "default"; in de tekst als
+"EDF R&D, U4.51.03" of, binnen een alinea, alleen het documentnummer). De
+standaardwaarden zijn tegen de 17.4-catalogus gecontroleerd.
+
+- EDF R&D (2020). *Notice d'utilisation des solveurs linéaires*, U2.08.03. Gelezen: versie 11-01-2024, `https://code-aster.org/doc/default/fr/man_u/u2/u2.08.03.pdf` (§3 keuze van de oplosser, §7.1 singuliere matrix, §7.2.1 foutgrens en conditiegetal). Lokaal: versie 05-05-2020.
+- EDF R&D (2020). *Opérateur STAT_NON_LINE*, U4.51.03, 30-04-2020. Lokaal; online "Calculation parametrization", "Nonlinear solver settings", "Convergence settings".
+- EDF R&D (2021). *Mot clé SOLVEUR*, U4.50.01. Gelezen: versie 11-01-2024, `https://code-aster.org/doc/default/fr/man_u/u4/u4.50.01.pdf` (§3.5.3 `RESI_RELA`/`POSTTRAITEMENTS`, §3.6 GCPC, §3.7 PETSC). Lokaal: versie 04-11-2021.
+- EDF R&D (2021). *Opérateur DEFI_CONTACT*, U4.44.11, 04-11-2021. Lokaal en online (alle operanden).
+- EDF R&D (2021). *Opérateur DEFI_MATERIAU*, U4.43.01, 03-11-2021. Lokaal (`TRACTION` §5.1.1).
+- EDF R&D (2021). *Opérateurs AFFE_CHAR_MECA*, U4.44.01, 04-11-2021. Lokaal (`LIAISON_MAIL` §5.13).
+- EDF R&D (z.j.). *Instructions for using contact in code_aster*, U2.04.04. Online, §1 tot §4.
+- EDF R&D (z.j.). *Tips for using STAT_NON_LINE*, U2.04.01. Online, "Introduction" en "Convergence tools".
+- EDF R&D (z.j.). *General tips for using DYNA_NON_LINE*, U2.06.13. Online, "Discretization of the ongoing problem" en "Optimizing performance".
+- EDF R&D (z.j.). *Operator DEFI_LIST_INST*, U4.34.03. Online, "DEFI_LIST" en "ECHEC".
+- EDF R&D (z.j.). *Operator DYNA_NON_LINE*, U4.53.01. Online, "Operands" (`SCHEMA_TEMPS`, `MASS_DIAG`, `ENERGIE`).
+- EDF R&D (z.j.). *Nonlinear behaviors, keyword COMPORTEMENT*, U4.51.11. Online, `DEFORMATION`, schademodellen.
+- EDF R&D (z.j.). *Macro-command MACR_ADAP_MAIL*, U7.03.01. Online, doel.
+
+Lokaal = Engelse machinevertaling in een lokale map met Code-Aster-documentatie.
+Online = DocAster, `https://docaster-en-codeaster-doc-4113bb35b8213385c636b94f1536856d7f617.gitlab.io/manuals/man_u/`
+(`u2/u2.04.04/index.html` enz.), geraadpleegd 5 oktober 2026; de site vermeldt geen
+versienummer.
+
+**Code-Aster-installatie** (EDF R&D, code_aster 17.4, Windows-build v2025):
+`%LOCALAPPDATA%/code_aster/v2025/17.4/lib/aster/code_aster/`
+
+- `Cata/Commands/defi_contact.py`, `stat_non_line.py`, `dyna_non_line.py`,
+  `defi_list_inst.py`, `meca_statique.py` (`INFO` 1 of 2);
+- `Cata/Commons/c_convergence.py`, `c_newton.py`, `c_comportement.py`,
+  `c_solveur.py`;
+- `Messages/contact2.py` (`CONTACT2_16`), `contact3.py` (`CONTACT3_16`),
+  `mecanonline9.py` (`MECANONLINE9_7`), `subdivise.py` (`SUBDIVISE_3`).
+- GCPC-uitvoer: `bibfor/algeline/gcpc.F90` in `https://gitlab.com/codeaster/src`
+  (welke iteraties bij `INFO=2` geschreven worden).
+
+**Mecway**: Mecway (2026). *Mecway Finite Element Analysis, Manual, version 33*,
+`C:\Program Files\Mecway\manual.pdf`: §6.2 (niet-lineair statisch, convergentie),
+§9.9 (contact), §9.14 (druk), §9.20 (centrifugaalkracht).
+
+**Literatuur**
+
+- Belytschko, T., Liu, W.K. en Moran, B. (2000). *Nonlinear Finite Elements for Continua and Structures*. Chichester: Wiley. Stabiele stap van centrale differenties met demping (geciteerd in `bridge_to_aster._damped_step_factor`; paragraaf NIET in het boek gecontroleerd).
+- Hilber, H.M., Hughes, T.J.R. en Taylor, R.L. (1977). Improved numerical dissipation for time integration algorithms in structural dynamics. *Earthquake Engineering and Structural Dynamics*, 5, 283–292.
+- Hughes, T.J.R. (2000). *The Finite Element Method: Linear Static and Dynamic Finite Element Analysis*. Mineola: Dover. Hoofdstuk 9.
+
+**Bridge-code**: `Scripts/bridge_utils.py` (`resolve_auto_analysis`),
+`Scripts/bridge_to_aster.py` (`_build_nonlin_static`, `_build_listinst_block`,
+`_build_contact_block`, `_build_dyna_listinst_block`, `_critical_time_step`,
+`_build_etat_init_block`, `_build_comportement_block`, `_deformation_for`,
+`_convergence_args`), `Scripts/bridge_mesh.py` (`_merge_contact_zones`,
+`_exclude_fixed_slaves`, `_check_contact_sides`, `_report_constraint_overlaps`),
+`Scripts/bridge_run_aster.py`, `Scripts/bridge_gui.py`.

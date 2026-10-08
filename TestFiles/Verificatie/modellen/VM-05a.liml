@@ -1,0 +1,53 @@
+<liml version="33">
+  <analysis type="S30" />
+  <node nid="1" x="0" y="0" z="0" />
+  <node nid="2" x="0.05" y="0" z="0" />
+  <node nid="3" x="0.05" y="0.01" z="0" />
+  <node nid="4" x="0" y="0.01" z="0" />
+  <node nid="5" x="0" y="0" z="0.01" />
+  <node nid="6" x="0.05" y="0" z="0.01" />
+  <node nid="7" x="0.05" y="0.01" z="0.01" />
+  <node nid="8" x="0" y="0.01" z="0.01" />
+  <node nid="9" x="0.1" y="0" z="0" />
+  <node nid="10" x="0.1" y="0.01" z="0" />
+  <node nid="11" x="0.1" y="0" z="0.01" />
+  <node nid="12" x="0.1" y="0.01" z="0.01" />
+  <elset name="Staaf" material="Staal">
+    <elem eid="1" shape="hex8" nodes="1 2 3 4 5 6 7 8" />
+    <elem eid="2" shape="hex8" nodes="2 9 10 3 6 11 12 7" />
+  </elset>
+  <displacement selection="SymX"><value>0 mm</value><x>1</x><y>0</y><z>0</z></displacement>
+  <displacement selection="SymY"><value>0 mm</value><x>0</x><y>1</y><z>0</z></displacement>
+  <displacement selection="SymZ"><value>0 mm</value><x>0</x><y>0</y><z>1</z></displacement>
+  <traction selection="EindX"><x>1000000 Pa</x><y>0 Pa</y><z>0 Pa</z></traction>
+  <ccxmodeldefinition>** ASTER-WOHLER Staal: S = [138, 152, 165, 180, 200, 250, 295, 305, 340, 430, 540, 690, 930, 1210, 1590, 2210, 2900] MPa, N = [1e+06, 500000, 200000, 100000, 50000, 20000, 12000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10], PROL_GAUCHE = LINEAIRE
+** ASTER-SIGNAAL 50, 600, 50, -500, 50</ccxmodeldefinition>
+  <mat name="Staal">
+    <mechanical type="Isotropic" youngsmodulus="210000 MPa" poissonratio="0.3" />
+  </mat>
+  <nodeselection name="SymX">
+    <node nid="1" />
+    <node nid="4" />
+    <node nid="5" />
+    <node nid="8" />
+  </nodeselection>
+  <nodeselection name="SymY">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="5" />
+    <node nid="6" />
+    <node nid="9" />
+    <node nid="11" />
+  </nodeselection>
+  <nodeselection name="SymZ">
+    <node nid="1" />
+    <node nid="2" />
+    <node nid="3" />
+    <node nid="4" />
+    <node nid="9" />
+    <node nid="10" />
+  </nodeselection>
+  <faceselection name="EindX">
+    <face eid="2" faceid="4" />
+  </faceselection>
+</liml>

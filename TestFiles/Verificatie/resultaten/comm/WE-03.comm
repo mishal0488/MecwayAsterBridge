@@ -1,0 +1,203 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor thermische analyses (Mecway T30 stationair / T31 transient):
+# THER_LINEAIRE, of THER_NON_LINE bij straling of convectie/straling op
+# schaalvlakken. Invulling via str.format() vanuit bridge_thermal.py
+# (build_thermal).
+#
+# Temperaturen staan in graden CELSIUS (RAYONNEMENT rekent met T + 273,15,
+# U4.44.02); aster_results_export.py zet 'temperature' terug naar Kelvin.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> MODI_MAILLAGE ROTATION (schalen buiten Z = constant),
+#                        DEFI_GROUP (deelgroepen per soort vlak en per
+#                        schaaldikte, knoopgroepen voor knooptemperaturen)
+#                        en MODI_MAILLAGE ORIE_PEAU
+#   model_block       -> AFFE_MODELE: volumes '3D', vlakke schalen en hun
+#                        randen 'PLAN', vlakken van volumes '3D'
+#   materials_block   -> DEFI_MATERIAU THER (lineair) of THER_NL
+#   fieldmat_block    -> AFFE_MATERIAU per elset
+#   funcs_block       -> DEFI_FONCTION / DEFI_CONSTANTE (tijdstabellen,
+#                        bronnen als functie van TEMP), FORMULE van INST
+#                        (schaalvlak-convectie/-straling met een tijdstabel)
+#   listinst_block    -> DEFI_LIST_REEL (+ CREA_CHAMP begintemperatuur)
+#   loads_block       -> AFFE_CHAR_THER(_F) load_1, load_2, ...; heatflow op
+#                        knopen: bronveld M^-1 F (loadqn_1, ...)
+#   solve_block       -> THER_LINEAIRE / THER_NON_LINE
+#   calc_champ_block  -> res_flux = CALC_CHAMP FLUX_ELGA, FLUX_ELNO, FLUX_NOEU
+#                        (gedraaid mesh: flux en mesh terug gedraaid)
+#   export_block      -> aster_results_export (Mecway-resultaten)
+#
+# Een accolade die geen placeholder is: verdubbelen ({ of }).
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(NOM='all_elems', TOUT='OUI'),
+    CREA_GROUP_NO=_F(NOM='all_nodes', GROUP_MA='all_elems'),
+)
+
+#-- geen extra groepen --
+
+
+# =====================================================
+# 2. MODEL (PHENOMENE='THERMIQUE')
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA=('Plaat',), PHENOMENE='THERMIQUE', MODELISATION='3D'),
+    ),
+)
+
+
+# =====================================================
+# 3. MATERIALEN
+# THER: LAMBDA (geleiding) en RHO_CP (dichtheid x soortelijke warmte).
+# Schalen als PLAN: beide maal f = t / t_ref (zie bridge_thermal.py).
+# =====================================================
+# materiaal 'Staal'
+MTH1 = DEFI_MATERIAU(THER=_F(LAMBDA=30.0, RHO_CP=4680000.0))
+
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Plaat', MATER=MTH1),
+    ),
+)
+
+
+# =====================================================
+# 4. FUNCTIES (tijd: PROL CONSTANT; temperatuur: PROL LINEAIRE)
+# =====================================================
+# Mecway-formules (bridge_bcs.aster_expression): hulpfuncties
+import math as _mw_math
+def _mw_heaviside(x):
+    return 1.0 if x > 0.0 else (0.0 if x < 0.0 else 0.5)
+def _mw_unittriangle(w, x):
+    if w <= 0.0:
+        raise ValueError('unittriangle: w <= 0')
+    return 0.0 if abs(x) >= 0.5 * w else (2.0 / w) * (1.0 - abs(x) / (0.5 * w))
+
+FF1 = FORMULE(
+    VALE='1.0*(1.0*(4.423879394e+12 * 2.7182818284590451 ** ( - 3 * ( ( ((X)/0.001) - 10 - 5 * ((INST)/1.0) ) ** 2 + ((Y)/0.001) ** 2 + ((Z)/0.001) ** 2 ) / 0.75 ** 2 ))+0.0)+0.0',
+    NOM_PARA=('X', 'Y', 'Z', 'INST',),
+)  # Mecway: 4.423879394e+12*e^(-3*((x-10-5*t)^2+y^2+z^2)/0.75^2)
+
+
+# =====================================================
+# 5. TIJDSTAPPEN (stationair: alleen 0.0) EN BEGINTEMPERATUUR
+# =====================================================
+times = DEFI_LIST_REEL(VALE=(
+    0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35,
+    0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75,
+    0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15,
+    1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5, 1.55,
+    1.6, 1.65, 1.7, 1.75, 1.8, 1.85, 1.9, 1.95,
+    2.0, 2.05, 2.1, 2.15, 2.2, 2.25, 2.3, 2.35,
+    2.4, 2.45, 2.5, 2.55, 2.6, 2.65, 2.7, 2.75,
+    2.8, 2.85, 2.9, 2.95, 3.0, 3.05, 3.1, 3.15,
+    3.2, 3.25, 3.3, 3.35, 3.4, 3.45, 3.5, 3.55,
+    3.6, 3.65, 3.7, 3.75, 3.8, 3.85, 3.9, 3.95,
+    4.0, 4.05, 4.1, 4.15, 4.2, 4.25, 4.3, 4.35,
+    4.4, 4.45, 4.5, 4.55, 4.6, 4.65, 4.7, 4.75,
+    4.8, 4.85, 4.9, 4.95, 5.0, 5.05, 5.1, 5.15,
+    5.2, 5.25, 5.3, 5.35, 5.4, 5.45, 5.5, 5.55,
+    5.6, 5.65, 5.7, 5.75, 5.8, 5.85, 5.9, 5.95,
+    6.0,
+))
+temp0 = CREA_CHAMP(
+    TYPE_CHAM='NOEU_TEMP_R',
+    OPERATION='AFFE',
+    MODELE=model,
+    AFFE=(
+        _F(TOUT='OUI', NOM_CMP='TEMP', VALE=-273.15),
+        _F(GROUP_NO='Alle', NOM_CMP='TEMP', VALE=20.0),
+    ),
+)
+
+
+# =====================================================
+# 6. RANDVOORWAARDEN EN BELASTINGEN
+# Elke Mecway-belasting een eigen last (EXCIT telt op); opgelegde
+# temperaturen samen in de eerste last(en).
+# =====================================================
+load_1 = AFFE_CHAR_THER_F(
+    MODELE=model,
+    SOURCE=(
+        _F(GROUP_MA='Rups', SOUR=FF1),
+    ),
+)
+
+
+# =====================================================
+# 7. OPLOSSEN
+# =====================================================
+res = THER_LINEAIRE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    EXCIT=(
+        _F(CHARGE=load_1),
+    ),
+    TYPE_CALCUL='TRAN',
+    ETAT_INIT=_F(CHAM_NO=temp0),
+    SCHEMA_TEMPS=_F(SCHEMA='THETA', THETA=0.57),
+    INCREMENT=_F(LIST_INST=times),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8),
+)
+
+
+# =====================================================
+# 8. WARMTEFLUX
+# =====================================================
+res_flux = CALC_CHAMP(
+    RESULTAT=res,
+    GROUP_MA=('Plaat',),
+    THERMIQUE=('FLUX_ELGA',),
+)
+res_flux = CALC_CHAMP(
+    reuse=res_flux,
+    RESULTAT=res_flux,
+    GROUP_MA=('Plaat',),
+    THERMIQUE=('FLUX_ELNO', 'FLUX_NOEU'),
+)
+
+
+# =====================================================
+# 9. RESULTATEN NAAR MECWAY
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.export_results(
+    res, '<WORKDIR>\\WE-03\\WE-03_verif_results.xml', '<WORKDIR>\\WE-03\\WE-03.liml',
+    extra_results=dict((k, globals()[k]) for k in
+                       ('res_sup', 'res_moy', 'res_inf',
+                        'res_flux', 'res_err')
+                       if k in globals()),
+    precision='single', static=False, fields=['temperature', 'heat_flux'])
+
+
+# =====================================================
+# 10. MED (ParaView / Salome), alleen met de instelling "med_export";
+# UNITE=80 = 'F rmed ... R 80'
+# =====================================================
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

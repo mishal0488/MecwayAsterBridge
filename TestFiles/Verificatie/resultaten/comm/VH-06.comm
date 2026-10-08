@@ -1,0 +1,238 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor de harmonische vibro-akoestiek: respons per frequentie van
+# een constructie en een lucht- of vloeistofvolume (analyse
+# vibroacoustic_harm_3d op een Mecway Frequency-model V30 met een
+# fluidum-onderdeel). PHENOMENE='MECANIQUE' met 3D_FLUIDE, FLUI_STRU,
+# 3D_FLUI_ABSO en de gewone mechanische elementen, FORMULATION 'U_P_PHI';
+# DYNA_VIBRA TYPE_CALCUL='HARM' BASE_CALCUL='PHYS' met MATR_IMPE_PHI
+# (testcases ahlv101a, ahlv100b). Invulling via str.format() vanuit
+# bridge_vibroacoustic_harm.build_vibroacoustic_harm.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> DEFI_GROUP / MODI_MAILLAGE (constructie) en
+#                        ORIE_PEAU van koppelvlakken en randvlakken
+#   model_block       -> AFFE_MODELE: constructie, 3D_FLUIDE, FLUI_STRU,
+#                        3D_FLUI_ABSO
+#   cara_elem_block   -> AFFE_CARA_ELEM (balken, schalen, veren, massa's)
+#   materials_block   -> DEFI_MATERIAU: ELAS (constructie), FLUIDE
+#   fieldmat_block    -> AFFE_MATERIAU
+#   load_funcs_block  -> DEFI_FONCTION's van Mecway-tabellen (NOM_PARA FREQ)
+#   loads_block       -> opleggingen en belastingen van de constructie,
+#                        drukknopen, bronnen (VITE_FACE, ONDE_FLUI)
+#   assemblage_block  -> ASSEMBLAGE (RIGI_MECA, MASS_MECA, ONDE_FLUI,
+#                        IMPE_MECA, demping van de constructie)
+#   vectors_block     -> lastvectoren (CALC_VECT_ELEM, ASSE_VECTEUR)
+#   harm_block        -> frequentielijst en res = DYNA_VIBRA(...)
+#   calc_champ_block  -> CALC_CHAMP SIGM_NOEU (volume-elementen)
+#   export_block      -> aster_harmonic_export (een <mode> per frequentie
+#                        met verplaatsing en druk; microfoons, meetpunten)
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# Een accolade die geen placeholder is: verdubbelen ({ of }).
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+#-- not used in this analysis --
+
+# Koppelvlakken: normaal uit het fluidum (ORIE_PEAU met GROUP_MA_INTERNE,
+# zoals adlv100b/adls102a)
+mesh = MODI_MAILLAGE(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    ORIE_PEAU=(
+        _F(GROUP_MA_PEAU='BRFSI1', GROUP_MA_INTERNE='Lucht'),
+    ),
+)
+
+# Randvlakken van het fluidum (bronnen, invallende golf, absorberend):
+# normaal uit het fluidum (ORIE_PEAU met GROUP_MA_INTERNE)
+mesh = MODI_MAILLAGE(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    ORIE_PEAU=(
+        _F(GROUP_MA_PEAU='ABSORBEREND_Einde', GROUP_MA_INTERNE='Lucht'),
+    ),
+)
+
+
+# =====================================================
+# 2. MODEL, SECTIES, MATERIALEN
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA='Plaat', PHENOMENE='MECANIQUE', MODELISATION='DKT'),
+        _F(GROUP_MA='Veer', PHENOMENE='MECANIQUE', MODELISATION='DIS_T'),
+        _F(GROUP_MA='Lucht', PHENOMENE='MECANIQUE', MODELISATION='3D_FLUIDE', FORMULATION='U_P_PHI'),
+        _F(GROUP_MA='BRFSI1', PHENOMENE='MECANIQUE', MODELISATION='FLUI_STRU', FORMULATION='U_P_PHI'),
+        _F(GROUP_MA='ABSORBEREND_Einde', PHENOMENE='MECANIQUE', MODELISATION='3D_FLUI_ABSO', FORMULATION='U_P_PHI'),
+    ),
+)
+
+
+cara = AFFE_CARA_ELEM(
+    MODELE=model,
+    COQUE=_F(GROUP_MA='Plaat', EPAIS=0.01, VECTEUR=(0.0, 1.0, 0.0)),
+    DISCRET=(
+        _F(GROUP_MA='Veer',
+           CARA='K_T_D_L', REPERE='LOCAL',
+           VALE=(3000.0, 0.0, 0.0)),
+        _F(GROUP_MA='Veer',
+           CARA='M_T_D_L',
+           VALE=(0.0,)),
+    ),
+)
+
+
+# materiaal 'Plaat'
+MAT_1 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0, NU=0.3, RHO=500.0),)
+# materiaal 'Lucht'
+MAF1 = DEFI_MATERIAU(FLUIDE=_F(RHO=1.2, CELE_R=340.0))
+
+
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Plaat', MATER=MAT_1),
+        _F(GROUP_MA='Lucht', MATER=MAF1),
+        _F(GROUP_MA='BRFSI1', MATER=MAF1),
+        _F(GROUP_MA='ABSORBEREND_Einde', MATER=MAF1),
+    ),
+)
+
+
+# =====================================================
+# 3. TABELLEN, LASTEN, BRONNEN, DRUKKNOPEN
+# =====================================================
+#-- geen tabellen (amplitude constant over de frequentie) --
+
+
+bridge_f0 = DEFI_CONSTANTE(VALE=0.0)
+bridge_f1 = DEFI_CONSTANTE(VALE=1.0)
+load_1 = AFFE_CHAR_MECA(
+    MODELE=model,
+    DDL_IMPO=(
+        _F(GROUP_NO='Grond', BLOCAGE=('DEPLACEMENT', 'ROTATION')),
+        _F(GROUP_NO='Plaatknopen', DY=0.0, SANS_GROUP_NO=('Grond',)),
+        _F(GROUP_NO='Plaatknopen', DZ=0.0, SANS_GROUP_NO=('Grond',)),
+        _F(GROUP_NO='Plaatknopen', DRX=0.0, SANS_GROUP_NO=('Grond',)),
+        _F(GROUP_NO='Plaatknopen', DRY=0.0, SANS_GROUP_NO=('Grond',)),
+        _F(GROUP_NO='Plaatknopen', DRZ=0.0, SANS_GROUP_NO=('Grond',)),
+    ),
+)
+
+load_2 = AFFE_CHAR_MECA(
+    MODELE=model,
+    FORCE_NODALE=_F(GROUP_NO='Last', FX=1.0),
+)
+
+
+
+# =====================================================
+# 4. MATRICES (ASSEMBLAGE, U4.61.21) EN LASTVECTOREN
+# =====================================================
+ASSEMBLAGE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    CARA_ELEM=cara,
+    CHARGE=(load_1,),
+    NUME_DDL=CO('numedd'),
+    MATR_ASSE=(
+        _F(MATRICE=CO('rigidite'), OPTION='RIGI_MECA'),
+        _F(MATRICE=CO('masse'), OPTION='MASS_MECA'),
+    ),
+)
+# Randen van het fluidum: invallende golf (ONDE_FLUI, met de golflasten)
+# en absorberend (IMPE_MECA, 3D_FLUI_ABSO), zoals ahlv101a
+ASSEMBLAGE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    NUME_DDL=numedd,
+    MATR_ASSE=(
+        _F(MATRICE=CO('impe_abso'), OPTION='IMPE_MECA'),
+    ),
+)
+impe = impe_abso
+
+
+vel_1 = CALC_VECT_ELEM(OPTION='CHAR_MECA', CHARGE=load_2, CHAM_MATER=fieldmat, CARA_ELEM=cara)
+vec_1 = ASSE_VECTEUR(VECT_ELEM=vel_1, NUME_DDL=numedd)
+
+
+# =====================================================
+# 5. HARMONISCHE RESPONS (DYNA_VIBRA HARM PHYS, U4.53.03)
+# =====================================================
+bridge_lf = DEFI_LIST_REEL(VALE=(5.0, 39.0, 100.0, 200.0,))
+print('BRIDGE_HARM_LIJST N=%d FMIN=%.10g FMAX=%.10g VERFIJND=0 BASIS=PHYS' % (4, 5.0, 200.0))
+res = DYNA_VIBRA(
+    TYPE_CALCUL='HARM',
+    BASE_CALCUL='PHYS',
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    CARA_ELEM=cara,
+    MATR_MASS=masse,
+    MATR_RIGI=rigidite,
+    MATR_IMPE_PHI=impe,
+    LIST_FREQ=bridge_lf,
+    NOM_CHAM=('DEPL',),
+    EXCIT=(
+        _F(VECT_ASSE=vec_1, COEF_MULT=1.0, PHAS_DEG=0.0),
+    ),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8),
+)
+
+
+#-- geen spanningen (fields of geen volumes) --
+
+
+# =====================================================
+# 6. RESULTATEN NAAR MECWAY
+# =====================================================
+# Resultaten in Mecway's eigen formaat (result_route 'liml'): een
+# <mode frequency> per frequentie met de verplaatsing van de
+# constructie en de druk in het fluidum (aster_harmonic_export)
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_harmonic_export
+aster_harmonic_export.export_harmonic(
+    res, '<WORKDIR>\\VH-06\\VH-06_verif_results.xml', '<WORKDIR>\\VH-06\\VH-06.liml',
+    fields=['displacements', 'accelerations'],
+    probes={},
+    csv_path='<WORKDIR>\\VH-06\\VH-06_verif_meetpunten.csv',
+    language='nl',
+    basis='PHYS',
+    pressure=True,
+    microphones={},
+    mic_csv_path='<WORKDIR>\\VH-06\\VH-06_verif_microfoons.csv')
+
+
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

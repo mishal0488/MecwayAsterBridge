@@ -1,0 +1,276 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor thermische analyses (Mecway T30 stationair / T31 transient):
+# THER_LINEAIRE, of THER_NON_LINE bij straling of convectie/straling op
+# schaalvlakken. Invulling via str.format() vanuit bridge_thermal.py
+# (build_thermal).
+#
+# Temperaturen staan in graden CELSIUS (RAYONNEMENT rekent met T + 273,15,
+# U4.44.02); aster_results_export.py zet 'temperature' terug naar Kelvin.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> MODI_MAILLAGE ROTATION (schalen buiten Z = constant),
+#                        DEFI_GROUP (deelgroepen per soort vlak en per
+#                        schaaldikte, knoopgroepen voor knooptemperaturen)
+#                        en MODI_MAILLAGE ORIE_PEAU
+#   model_block       -> AFFE_MODELE: volumes '3D', vlakke schalen en hun
+#                        randen 'PLAN', vlakken van volumes '3D'
+#   materials_block   -> DEFI_MATERIAU THER (lineair) of THER_NL
+#   fieldmat_block    -> AFFE_MATERIAU per elset
+#   funcs_block       -> DEFI_FONCTION / DEFI_CONSTANTE (tijdstabellen,
+#                        bronnen als functie van TEMP), FORMULE van INST
+#                        (schaalvlak-convectie/-straling met een tijdstabel)
+#   listinst_block    -> DEFI_LIST_REEL (+ CREA_CHAMP begintemperatuur)
+#   loads_block       -> AFFE_CHAR_THER(_F) load_1, load_2, ...; heatflow op
+#                        knopen: bronveld M^-1 F (loadqn_1, ...)
+#   solve_block       -> THER_LINEAIRE / THER_NON_LINE
+#   calc_champ_block  -> res_flux = CALC_CHAMP FLUX_ELGA, FLUX_ELNO, FLUX_NOEU
+#                        (gedraaid mesh: flux en mesh terug gedraaid)
+#   export_block      -> aster_results_export (Mecway-resultaten)
+#
+# Een accolade die geen placeholder is: verdubbelen ({ of }).
+
+# Taal van de meldingen van de jobscripts (aster_*.py)
+import os as _bridge_os
+_bridge_os.environ['BRIDGE_LANGUAGE'] = 'nl'
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(NOM='all_elems', TOUT='OUI'),
+    CREA_GROUP_NO=_F(NOM='all_nodes', GROUP_MA='all_elems'),
+)
+
+#-- geen extra groepen --
+
+
+# =====================================================
+# 2. MODEL (PHENOMENE='THERMIQUE')
+# =====================================================
+model = AFFE_MODELE(
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA=('Staaf',), PHENOMENE='THERMIQUE', MODELISATION='3D'),
+    ),
+)
+
+
+# =====================================================
+# 3. MATERIALEN
+# THER: LAMBDA (geleiding) en RHO_CP (dichtheid x soortelijke warmte).
+# Schalen als PLAN: beide maal f = t / t_ref (zie bridge_thermal.py).
+# =====================================================
+# materiaal 'Staal'
+MTH1 = DEFI_MATERIAU(THER=_F(LAMBDA=50.0, RHO_CP=3900000.0))
+
+fieldmat = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA='Staaf', MATER=MTH1),
+    ),
+)
+
+
+# =====================================================
+# 4. FUNCTIES (tijd: PROL CONSTANT; temperatuur: PROL LINEAIRE)
+# =====================================================
+FT1 = DEFI_FONCTION(NOM_PARA='INST', VALE=(
+    0.0, 900.0,
+    8.8, 20.0,
+), PROL_GAUCHE='CONSTANT', PROL_DROITE='CONSTANT')
+
+
+# =====================================================
+# 5. TIJDSTAPPEN (stationair: alleen 0.0) EN BEGINTEMPERATUUR
+# =====================================================
+times = DEFI_LIST_REEL(VALE=(
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7,
+    0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5,
+    1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3,
+    2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 3.1,
+    3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9,
+    4.0, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7,
+    4.8, 4.9, 5.0, 5.1, 5.2, 5.3, 5.4, 5.5,
+    5.6, 5.7, 5.8, 5.9, 6.0, 6.1, 6.2, 6.3,
+    6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 7.0, 7.1,
+    7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9,
+    8.0, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7,
+    8.8,
+))
+temp0 = CREA_CHAMP(
+    TYPE_CHAM='NOEU_TEMP_R',
+    OPERATION='AFFE',
+    MODELE=model,
+    AFFE=(
+        _F(TOUT='OUI', NOM_CMP='TEMP', VALE=-273.15),
+        _F(GROUP_NO='Alle', NOM_CMP='TEMP', VALE=900.0),
+    ),
+)
+
+
+# =====================================================
+# 6. RANDVOORWAARDEN EN BELASTINGEN
+# Elke Mecway-belasting een eigen last (EXCIT telt op); opgelegde
+# temperaturen samen in de eerste last(en).
+# =====================================================
+load_1 = AFFE_CHAR_THER_F(
+    MODELE=model,
+    TEMP_IMPO=(
+        _F(GROUP_NO='Alle', TEMP=FT1),
+    ),
+)
+# --- #ASTER-code van de gebruiker (Mecway custom input) ---
+TRC_EIGEN = DEFI_TRC(
+    HIST_EXP=(
+        _F(VALE=(-100.0, 11.0, 0., 0., 0., 0., 0., 0.,
+                 0., 0., 0., 830.0)),
+        _F(VALE=(-400.0, 11.0, 0., 0., 0., 0., 0., 0.,
+                 0., 0., 0., 830.0)),
+    ),
+    TEMP_MS=_F(SEUIL=0.38, AKM=-30.791, BKM=11.698, TPLM=-1.0),
+)
+# --- einde ---
+
+
+# =====================================================
+# 7. OPLOSSEN
+# =====================================================
+res = THER_LINEAIRE(
+    MODELE=model,
+    CHAM_MATER=fieldmat,
+    EXCIT=(
+        _F(CHARGE=load_1),
+    ),
+    TYPE_CALCUL='TRAN',
+    ETAT_INIT=_F(CHAM_NO=temp0),
+    SCHEMA_TEMPS=_F(SCHEMA='THETA', THETA=0.57),
+    INCREMENT=_F(LIST_INST=times),
+    SOLVEUR=_F(METHODE='MUMPS', NPREC=8),
+)
+
+
+# =====================================================
+# 8. WARMTEFLUX
+# =====================================================
+# --- Metallurgie (#ASTER-METALLURGIE, bridge_metallurgy.py) ---
+# Begintoestand: V1..V5 = ferriet, perliet, bainiet, martensiet, austeniet,
+# V6 = som koude fasen, V7 = korrelgrootte (hsnv101a, mtlp103a)
+meta_mat1 = DEFI_MATERIAU(META_ACIER=_F(TRC=TRC_EIGEN, AR3=830.0, ALPHA=-0.011, MS0=300.0, AC1=724.0, AC3=846.0, TAUX_1=0.34, TAUX_3=0.34))
+fieldmat_meta = AFFE_MATERIAU(
+    MAILLAGE=mesh,
+    MODELE=model,
+    AFFE=(
+        _F(GROUP_MA=('Staaf',), MATER=meta_mat1),
+    ),
+)
+meta_init = CREA_CHAMP(
+    OPERATION='AFFE',
+    TYPE_CHAM='CART_VAR2_R',
+    MAILLAGE=mesh,
+    AFFE=(
+        _F(GROUP_MA=('Staaf',), NOM_CMP=('V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7'),
+           VALE=(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0)),
+    ),
+)
+res = CALC_META(
+    reuse=res,
+    RESULTAT=res,
+    MODELE=model,
+    CHAM_MATER=fieldmat_meta,
+    ETAT_INIT=_F(META_INIT_ELNO=meta_init),
+    COMPORTEMENT=_F(RELATION='ACIER', GROUP_MA=('Staaf',)),
+    OPTION=('META_ELNO', 'META_NOEU'),
+)
+# Samenvatting metallurgie (bridge_metallurgy): fasen op het laatste
+# tijdstip, grootste austenietfractie tijdens de run (warmte-beinvloede
+# zone), hardheid. Regels BRIDGE_META in de .mess.
+def _bridge_meta_report(res, n_nodes, with_hv, ac3):
+    import numpy as np
+    out = []
+    try:
+        acc = res.getAccessParameters()
+        idx = acc['NUME_ORDRE']
+        out.append(('t', acc['INST'][-1]))
+
+        def vals(name, i):
+            sf = res.getField(name, i).toSimpleFieldOnNodes()
+            v, m = sf.getValues()
+            return list(sf.getComponents()), v[:n_nodes], m[:n_nodes]
+        c, v, m = vals('META_NOEU', idx[-1])
+        ok = m[:, c.index('V5')]
+        out.append(('n', int(ok.sum())))
+        for k, name in enumerate(('ferrite', 'pearlite', 'bainite',
+                                  'martensite', 'austenite')):
+            col = v[ok, c.index('V%d' % (k + 1))]
+            out += [(name + '_min', float(col.min())),
+                    (name + '_max', float(col.max()))]
+        zmax = np.zeros(int(ok.sum()))
+        tmax = np.full(int(ok.sum()), -1.0e30)
+        for i in idx:
+            c, v, m = vals('META_NOEU', i)
+            zmax = np.maximum(zmax, v[ok, c.index('V5')])
+            tmax = np.maximum(tmax, v[ok, c.index('V8')])
+        out += [('austenite_peak', float(zmax.max())),
+                ('n_haz', int((zmax > 0.01).sum())),
+                ('n_full', int((zmax > 0.99).sum())),
+                ('T_peak', float(tmax.max()) + 273.15),
+                # ruim boven Ac3 geweest maar niet (bijna) volledig
+                # austeniet: de austenitisering loopt achter
+                ('n_lag', int(((tmax > ac3 + 50.0) & (zmax < 0.9)).sum()))]
+        if with_hv:
+            c, v, m = vals('DURT_NOEU', idx[-1])
+            col = v[ok, c.index('HV')]
+            out += [('HV_min', float(col.min())), ('HV_max', float(col.max()))]
+    except Exception as exc:
+        print('BRIDGE_META_FOUT', repr(exc))
+    for key, value in out:
+        print('BRIDGE_META %s %r' % (key, value))
+_bridge_meta_report(res, 20, False, 846.0)
+# --- einde metallurgie ---
+res_flux = CALC_CHAMP(
+    RESULTAT=res,
+    GROUP_MA=('Staaf',),
+    THERMIQUE=('FLUX_ELGA',),
+)
+res_flux = CALC_CHAMP(
+    reuse=res_flux,
+    RESULTAT=res_flux,
+    GROUP_MA=('Staaf',),
+    THERMIQUE=('FLUX_ELNO', 'FLUX_NOEU'),
+)
+
+
+# =====================================================
+# 9. RESULTATEN NAAR MECWAY
+# =====================================================
+# Resultaten in Mecway's eigen formaat (bridge: result_route='liml')
+import sys
+sys.path.insert(0, '<REPO>\\Scripts')
+import aster_results_export
+aster_results_export.export_results(
+    res, '<WORKDIR>\\MT-08\\MT-08_verif_results.xml', '<WORKDIR>\\MT-08\\MT-08.liml',
+    extra_results=dict((k, globals()[k]) for k in
+                       ('res_sup', 'res_moy', 'res_inf',
+                        'res_flux', 'res_err')
+                       if k in globals()),
+    precision='single', static=False, fields=['temperature', 'heat_flux', 'metallurgy'])
+
+
+# =====================================================
+# 10. MED (ParaView / Salome), alleen met de instelling "med_export";
+# UNITE=80 = 'F rmed ... R 80'
+# =====================================================
+#-- geen MED-export (instelling med_export uit) --
+
+
+FIN()

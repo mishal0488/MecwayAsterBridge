@@ -1,0 +1,99 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor MODE_ITER_CYCL: modale analyse met cyclische symmetrie
+# (Mecway V30 met een Cyclic symmetry-constraint). Invulling via
+# str.format() vanuit bridge_cyclic.py (build_cyclic_modes).
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block    -> DEFI_GROUP / MODI_MAILLAGE (zoals MECA_STATIQUE)
+#   rotate_block       -> symmetrieas X/Y: mesh draaien naar de Z-as
+#   model_block        -> AFFE_MODELE per elset
+#   cara_elem_block    -> AFFE_CARA_ELEM (knoopmassa's)
+#   materials_block    -> DEFI_MATERIAU per materiaal (met RHO)
+#   fieldmat_block     -> AFFE_MATERIAU toewijzing
+#   loads_block        -> AFFE_CHAR_MECA's (opleggingen; met voorspanning
+#                         ook de belastingen)
+#   cyclic_loads_block -> snijvlakken vast (cycl_if), relaties ND 0 voor de
+#                         voorspanning (cycl_rel)
+#   static_block       -> voorspanning: MECA_STATIQUE en SIEF_ELGA
+#   assemblage_block   -> ASSEMBLAGE (K, M; met voorspanning K + Kg)
+#   base_block         -> sectormodes, DEFI_INTERF_DYNA, DEFI_BASE_MODALE
+#   cycl_block         -> MODE_ITER_CYCL, REST_SOUS_STRUC, aster_cyclic
+#   export_block       -> aster_results_export (een <mode> per mode)
+#   impr_resu_block    -> IMPR_RESU MED (alleen met "med_export")
+#
+# Een accolade die geen placeholder is: verdubbelen ({{ of }}).
+
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+{defigroup_block}
+
+{rotate_block}
+
+# =====================================================
+# 2. MODEL, SECTIES, MATERIALEN (zoals MECA_STATIQUE)
+# =====================================================
+{model_block}
+
+{cara_elem_block}
+
+{materials_block}
+
+{fieldmat_block}
+
+# =====================================================
+# 3. RANDVOORWAARDEN EN SNIJVLAKKEN
+# =====================================================
+{loads_block}
+
+{cyclic_loads_block}
+
+# =====================================================
+# 4. VOORSPANNING (STATISCH, CYCLISCH SYMMETRISCH)
+# =====================================================
+{static_block}
+
+# =====================================================
+# 5. MATRICES VAN DE SECTOR MET VASTE SNIJVLAKKEN (ASSEMBLAGE)
+# =====================================================
+{assemblage_block}
+
+# =====================================================
+# 6. BASIS VAN DE SECTOR (CALC_MODES, DEFI_INTERF_DYNA, DEFI_BASE_MODALE)
+# =====================================================
+{base_block}
+
+# =====================================================
+# 7. CYCLISCHE MODES (MODE_ITER_CYCL, U4.52.05)
+# =====================================================
+{cycl_block}
+
+# =====================================================
+# 8. RESULTATEN NAAR MECWAY
+# =====================================================
+{export_block}
+
+{impr_resu_block}
+
+FIN()

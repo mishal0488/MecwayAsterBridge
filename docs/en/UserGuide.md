@@ -1,0 +1,467 @@
+# MecwayAsterBridge user guide
+
+*Nederlandse versie: [Handleiding.md](../Handleiding.md)*
+
+The bridge solves a Mecway model with Code-Aster 17.4 and puts the results back into
+Mecway. You build the model in Mecway (mesh, materials, loads, selections) and run
+the bridge as a script; the bridge translates the `.liml` into a Code-Aster mesh
+and a `.comm`, starts Code-Aster and loads the results.
+
+**About the language of the software.** The main window, the messages, the
+WARNING/ERROR lines in the log and the `.mess` and the convergence window are available in Dutch and
+English: setting "Taal / Language" on the General page (`en` = English, the default;
+`nl` = Dutch). This guide quotes the English text, e.g. "Work folder"; with `nl`
+the window shows the Dutch text ("Werkmap"). Some things stay Dutch: INFO/SUCCESS lines in the log, the comments in the
+generated `.comm`, and the developer file `KNOWN_BUGS.md`.
+
+Related documents:
+
+| Topic | Document |
+|---|---|
+| Installation (Code-Aster, scripts, menu item) | [`README.md`](../../README.md) |
+| Default settings and assumptions (why each default) | [`Default_settings_and_assumptions.md`](Default_settings_and_assumptions.md) |
+| Settings for contact and nonlinear analyses, convergence window | [`Settings_contact_and_nonlinear.md`](Settings_contact_and_nonlinear.md) |
+| Thermal analyses | [`Thermal.md`](Thermal.md) |
+| Welding: moving heat source (weld bead, transient thermal), residual stress, distortion and metallurgy (phases, hardness) | [`Welding.md`](Welding.md) |
+| Modal analysis (also cyclic symmetry), linear and nonlinear buckling (CRIT_STAB, imperfection) | [`Modal_and_buckling.md`](Modal_and_buckling.md) |
+| Mode superposition (Dynamic Response with Mode superposition) and harmonic response per frequency (`harmonic_3d`) | [`Mode_superposition.md`](Mode_superposition.md) |
+| Acoustics: cavity modes and harmonic pressure field with source, absorbing boundaries and microphones (Acoustic Resonance 3D); vibroacoustics: coupled modes of structure + air/liquid (Frequency with a fluid part) and their response per frequency (source, absorbing boundaries, microphones) | [`Acoustics.md`](Acoustics.md) |
+| Response spectrum (earthquake, shock) | [`Response_spectrum.md`](Response_spectrum.md) |
+| Error estimator: discretisation error per element (linear static) | [`Error_estimator.md`](Error_estimator.md) |
+| Fracture mechanics: K and G along a meshed crack (linear static, `CRACK_` selections) or an XFEM crack without a mesh (`#ASTER-XFEM`, §7) | [`Fracture_mechanics.md`](Fracture_mechanics.md) |
+| Adaptive refinement: refine the mesh in Mecway where the error is large (linear static) | [`Error_estimator.md`](Error_estimator.md) §6 |
+| Element failure | [`Failure.md`](Failure.md) |
+| Fatigue: damage and life per node (Wöhler curve, rainflow, Miner, critical-plane criteria, Manson-Coffin; `#ASTER-WOHLER`) | [`Fatigue.md`](Fatigue.md) |
+| Your own Code-Aster input (`#ASTER` lines) | [`ASTER_lines_examples.md`](ASTER_lines_examples.md) |
+| Code-Aster messages, cause and solution | [`CodeAster_error_messages.md`](CodeAster_error_messages.md) |
+| Verification against analytical solutions | [`Verification.md`](Verification.md) |
+| Known deviations and limitations (developer file, Dutch) | [`KNOWN_BUGS.md`](../../KNOWN_BUGS.md) |
+
+## 1. Requirements
+
+- **Mecway 33.** The bridge runs in Mecway's IronPython 2.7 scripting environment
+  (Mecway Ltd., 2026, §16.2) and has been tested with `.liml` files of version 33.
+  Other versions have not been tested (assumption: the `.liml` format is the same).
+- **Code-Aster 17.4 for Windows**; the path to `run_aster.bat` is in
+  `CONFIG_BRIDGE["exe_aster"]` (`Scripts/bridge_utils.py`; default
+  `%LOCALAPPDATA%\code_aster\v2025\17.4\bin\run_aster.bat`, the location of the
+  Windows package) and can be set in the main window. Installation: see [`README.md`](../../README.md).
+- The `Scripts/` folder of this repository in a fixed location. Mecway runs
+  `Scripts/MecwayAsterBridgeMain.py`; Code-Aster loads
+  `Scripts/aster_results_export.py` from that location during the run. The `.comm`
+  templates (`AsterTemplate_*.comm`) are also in `Scripts/`; they need no setting.
+- A work folder with a short path: work folder plus file name together may not exceed
+  259 characters (Windows). If the path is too long, the bridge shortens the model
+  name in the file names (WARNING); if it still does not fit, Code-Aster is not
+  started.
+
+## 2. Workflow
+
+1. Build the model in Mecway. Supported analysis types: static 3D, nonlinear static
+   3D, dynamic 3D (linear, also with mode superposition, and nonlinear), thermal
+   steady state and transient, frequency (modal), buckling and acoustic cavity modes (§4; modal and
+   buckling: [`Modal_and_buckling.md`](Modal_and_buckling.md); mode superposition:
+   [`Mode_superposition.md`](Mode_superposition.md); acoustics: [`Acoustics.md`](Acoustics.md)). The bridge computes a response
+   spectrum (earthquake, shock) on a frequency model with a Gravity table as the
+   spectrum ([`Response_spectrum.md`](Response_spectrum.md)). Give every element set (elset)
+   a material: without materials the bridge stops.
+2. Start the bridge: *Tools* > the menu item of `MecwayAsterBridgeMain.py` (see
+   [`README.md`](../../README.md)).
+3. The **main window** appears (§3). Check the settings and click "Start"
+   ("Close" stops the bridge without a run).
+4. The bridge saves the model (`mw.save()`), reads the `.liml`, writes the mesh,
+   `<model>_<run-id>.comm` and `.export` to the work folder (§5) and starts Code-Aster
+   in a **separate window**. With route `tabel` it first checks that the Mecway
+   solution matches the mesh; if not, it stops with a message.
+5. Mecway shows "Code_Aster has been started in a separate window. Click OK once the
+   calculation has finished." (with the convergence window on, "The convergence window
+   shows the progress." in between; with language `nl` the Dutch text "Code_Aster is
+   gestart in een apart venster. ..."). Wait until the Code-Aster window shows
+   `DIAGNOSTIC JOB` and only then click OK. If you click too early, the bridge asks
+   again.
+6. The results arrive in Mecway:
+   - route `liml` (default): the bridge writes the results into the `.liml` (the
+     previous version is kept as `<model>.liml.bak`) and reopens the model; the
+     results are also kept separately and can be loaded again later (§5.1);
+   - route `tabel` (table): the bridge writes nodal values into the existing Mecway
+     solution (static and nonlinear static only, §3).
+7. Then the main window comes back. The status box reports the outcome, what was not
+   translated ("Note: these loads/constraints were NOT translated to Code-Aster;
+   the results were computed without them: ...") and which errors Code-Aster reported (§6). For modal and buckling it also
+   shows the frequencies or buckling factors.
+
+## 3. The main window
+
+The window stays open until you click "Close". After a run it comes back,
+with the outcome and any messages in the **status box** at the bottom. The window is
+non-modal: Mecway stays usable while it is open (NOT verified in Mecway for all
+actions, KNOWN_BUGS 38). The header shows the model and the active analysis.
+
+On the left is a **navigation list** with the pages of the window, in groups:
+"Settings" (General, Elements), "Analyses" (one page per analysis) and
+"Help" (Documentation). The chosen page is highlighted (bold, with a blue bar);
+on the right are its title and its settings, in groups. Click a page, or use the arrow
+keys (and Home/End) in the list; Ctrl+Tab and Ctrl+PageDown go to the next page from
+anywhere in the window, Ctrl+Shift+Tab and Ctrl+PageUp to the previous one. The
+window can be dragged larger (path fields grow along); in a small window the list and
+the page scroll. "Start" and "Close" are at the bottom right,
+the other buttons on the left.
+
+| Button | What it does |
+|---|---|
+| "Start" | Saves the settings, saves the model and starts Code-Aster (§2). Then the window comes back |
+| "Results..." | Saves the settings; then load an earlier run, or remove the results from the model (small `.liml`; §5.1). Then the window comes back |
+| "Convergence window" | Opens the convergence and messages window as a separate window (stays open next to Mecway) for the newest run of the open model in the folder from the "Work folder" field; if there is no run of this model, the newest `.mess` in that folder. Without a run the status box says there is nothing to show |
+| "Explanation..." | Opens the glossary of codes and names (D31, `GDEF_LOG`, `MUMPS`, ...) on the Documentation page |
+| "Close" | Closes the bridge. Settings changed after the last Start or Results... are not saved |
+
+- **Tooltips:** hover over a setting for an explanation; for a choice list the
+  meaning of each option is shown too.
+- **Documentation page:** the glossary and the documents from `docs/` (in the chosen
+  language), with formatting; links to other documents and to headings work, web
+  addresses open in the default browser.
+- **Saving:** settings apply to the run and are saved on Start and Results... in
+  `Scripts/bridge_utils.py` (previous version: `bridge_utils.py.bak`). If the window
+  cannot be shown (Windows Forms not available), the bridge asks for the settings
+  with text prompts (`mw.input`) and does a single run.
+
+The *Default* column below gives the value as shipped in the repository. Why each
+value was chosen: [`Default_settings_and_assumptions.md`](Default_settings_and_assumptions.md).
+
+**Page "General"**
+
+| Setting (label) | Default | Meaning |
+|---|---|---|
+| "Taal / Language" | `en` | `nl` (Dutch) or `en` (English): main window, messages, WARNING/ERROR lines in the log and the convergence window, and the WARNING/ERROR lines (nl: WAARSCHUWING/FOUT) that the bridge scripts in the Code-Aster job write to the `.mess`. Applies to the run straight away; the main window switches language when it comes back. INFO/SUCCESS lines and the comments in the `.comm` stay Dutch |
+| "Code-Aster launcher (run_aster.bat)" | `%LOCALAPPDATA%\code_aster\v2025\17.4\bin\run_aster.bat` | path to `run_aster.bat`; environment variables such as `%LOCALAPPDATA%` are allowed. If the file does not exist, the status box says so at start; choose it with "Browse..." |
+| "Work folder" | empty = `WorkDir` next to the `Scripts` folder (the window shows that path) | folder for the mesh, `<model>_<run-id>.*`, log and results (§5); created if it does not exist |
+| "Number of CPU cores (ncpus)" | 1 | `ncpus` (threads) in the `.export`; the bridge runs without MPI (`mpi_nbcpu 1`) |
+| "Active analysis (auto = follow Mecway)" | `auto` | `auto` follows the Mecway analysis type: S30 → Static, L30 → Nonlinear static, D30 with *Mode superposition* → Mode superposition, D30 without and D31 → Dynamic (implicit), T30/T31 → Thermal, V30 → Modal (with a fluid part: Vibroacoustics (modes)), B30 → Buckling, A30 → Acoustics (cavity modes; with a source, `SOURCE_` selection, Acoustics (harmonic)); applies only to that run. Or choose an analysis yourself (Dynamic (explicit) is always chosen by hand). Another Mecway type (2D, ...) with `auto`: the bridge stops with a message |
+| "Mecway solve first as a check" | off | solves in Mecway first and stops on an error. Writes `<model>_<run-id>_vergelijking.csv` (Mecway and Code-Aster value per node) and logs the largest difference per variable; for modal and buckling the log compares the frequency or factor per mode |
+| "Results to Mecway" | `liml` | `liml`: all time steps or modes, element-node values too; the model is reopened. `tabel` (table): nodal values of the last time only, into the existing Mecway solution; requires a solution that matches the mesh; Static and Nonlinear static only (not dynamic, thermal, modal or buckling) |
+| "Convergence and messages window" | on | opens a separate window on every run: for a nonlinear analysis the residuals, progress and contact; for the static analysis the linear solver (time per phase, error bound, condition number; with GCPC the residual per iteration); for modal and buckling the first modes; for every analysis the messages (errors and alarms with explanation) and the diagnosis. Afterwards: the "Convergence window" button. See [Settings §4.4](Settings_contact_and_nonlinear.md#44-convergence-screen) |
+| "MED file for ParaView" | off | also writes `<model>_<run-id>.rmed` (ParaView/Salome); Mecway does not use it and it can grow to hundreds of MB |
+
+Below the settings the page shows the mapping of `auto` to the Mecway analysis types, a
+note on the language and the path of `bridge_utils.py`.
+
+Mecway's linear *Dynamic Response* (D30): with the option *Mode superposition*,
+`auto` picks "Mode superposition" (`dyna_modal_3d`,
+[`Mode_superposition.md`](Mode_superposition.md)); without it, `auto` picks
+"Dynamic (implicit)". Set its "Time scheme" to
+`NEWMARK` and "COMPORTEMENT DEFORMATION" to `PETIT` for the same scheme as Mecway
+(verification MD-07: equal to Mecway); with other values the bridge gives a
+WARNING. The steady-state response to a sinusoidal load per frequency (amplitude,
+phase) has no Mecway analysis type: choose "Harmonic response" (`harmonic_3d`) yourself for a *Frequency* or *Dynamic Response* model
+([`Mode_superposition.md`](Mode_superposition.md) §7).
+
+**Page "Elements"** (all mechanical analyses)
+
+| Setting (label) | Default | Choices |
+|---|---|---|
+| "Hex8 solid elements" | `3D` | `3D`: fully integrated; stiffer than Mecway's hex8 with incompatible modes (KNOWN_BUGS 1; the bridge gives a WARNING). `3D_SI`: reduced integration, only for elsets with hex8 elements only and not explicit; with one element through the thickness ~0 bending stress. `LINE_QUAD`: Code-Aster makes all linear solid elements quadratic (hex8 → hex20, tet4 → tet10, ~3x as many nodes); only if nothing else stays linear (no beams, springs, DKT shells), the model has no quadratic solid elements and the scheme is not explicit; otherwise it stays `3D` with a WARNING. Results at the corner nodes |
+| "Linear shells (tri3/quad4)" | `DKT` | `DKT` (Kirchhoff, thin), `DST` (with transverse shear deformation; static analysis only, otherwise DKT with a WARNING) or `COQUE_3D`: the shells are first made quadratic (quad9/tria7, with rotation about the normal); if they share nodes with elements that stay linear, or are the master of bonded contact, DKT is used (KNOWN_BUGS 2). Quadratic shells (tri6/quad8) are always `COQUE_3D` |
+| "Beams (line2)" | `POU_D_E` | `POU_D_E` (Euler-Bernoulli, as in Mecway) or `POU_D_T` (Timoshenko, with shear deformation) |
+
+**One page per analysis**: "Static", "Nonlinear static", "Dynamic (implicit)", "Dynamic (explicit)", "Thermal", "Modal", "Mode superposition", "Harmonic response",
+"Response spectrum", "Buckling", "Acoustics (cavity modes)", "Acoustics (harmonic)",
+"Vibroacoustics (modes)" and "Vibroacoustics (harmonic)".
+The page of the active analysis is called "... (active)". At the top of each
+page are the Code-Aster command, the `.comm` template used and the Mecway types that
+lead to this analysis with `auto`. A page shows only the settings that belong to that
+analysis:
+
+| Setting (label) | Analyses | Default |
+|---|---|---|
+| "Result fields to Mecway" | all | see §4.1 |
+| "Time limit run_aster [s]" | all | 600 (static), 1800 (nonlinear static, thermal, mode superposition, harmonic response, response spectrum, vibroacoustics (harmonic)), 7200 (dynamic), 900 (modal, buckling, acoustics, vibroacoustics (modes)) |
+| "Memory limit run_aster [MB]" | all | 4096 (nonlinear static, dynamic, thermal), 2048 (others) |
+| "MUMPS NPREC (-1 = check off)" | all | 8 |
+| "Linear solver (MUMPS / GCPC)" | static | `MUMPS` |
+| "Solver accuracy (RESI_RELA)" | static | 1e-6 |
+| "Error estimator (CALC_ERREUR, solids only)" | static | on ([`Error_estimator.md`](Error_estimator.md)) |
+| "Crack: R_INF [m] (0 = automatic)" / "Crack: R_SUP [m] (0 = automatic)", "Crack: smoothing along the front", "Crack: Legendre degree (0 .. 7)" | static (only with `CRACK_` selections or `#ASTER-XFEM`; smoothing and degree not for XFEM) | 0 / 0, `LINEAIRE`, 5 ([`Fracture_mechanics.md`](Fracture_mechanics.md)) |
+| "Adaptive refinement (Mecway refine_x2)" | static | off ([`Error_estimator.md`](Error_estimator.md) §6) |
+| "Substeps per time interval" | nonlinear static | 10 |
+| "Max. Newton iterations (ITER_GLOB_MAXI)" | nonlinear static, dynamic implicit, thermal (`THER_NON_LINE` only) | 20 |
+| "NEWTON REAC_ITER" | nonlinear static, dynamic implicit, thermal (`THER_NON_LINE` only) | 1 (at least 1) |
+| "End time without time load [s]" | nonlinear static, dynamic | 1.0 |
+| "Convergence criterion (RELA / MAXI / RELA or MAXI)" | nonlinear static, dynamic implicit | `RELA` (choice `RELA`, `MAXI`, `RELA_OF_MAXI`) |
+| "Convergence RESI_GLOB_RELA" | nonlinear static, dynamic implicit, thermal (`THER_NON_LINE` only) | 1e-5 (nonlinear static, dynamic implicit; Code-Aster default 1e-6), 1e-6 (thermal) |
+| "Convergence RESI_GLOB_MAXI [N]" | nonlinear static, dynamic implicit (with `MAXI` and `RELA_OF_MAXI`) | 1e-3 |
+| "Contact method (STANDARD / PENALISATION)" | nonlinear static, dynamic | `STANDARD` |
+| "Strain definition hardening curve" | nonlinear static, dynamic | `auto` |
+| "COMPORTEMENT DEFORMATION" | nonlinear static, dynamic | `GROT_GDEP` |
+| "Time scheme (SCHEMA_TEMPS)" | dynamic | `HHT` (implicit; choice `HHT`/`NEWMARK`), `DIFF_CENT` (explicit; choice `DIFF_CENT`/`TCHAMWA`) |
+| "HHT ALPHA (-0.3 .. 0)" | dynamic implicit | -0.1 |
+| "Solver steps per output interval" | dynamic implicit | 1 |
+| "Energy balance (ENERGIE; not with contact)" | dynamic implicit | off |
+| "Time step / critical time step" | dynamic explicit | 0.5 |
+| "Time scheme THETA (0 .. 1)" | thermal | 0.57 |
+| "Element failure (plastic strain)" | nonlinear static, dynamic | on |
+| "Failure limit all plastic mat. (0 = off)" | nonlinear static, dynamic | 0 |
+| "Stiffness of failed element (x E)" | nonlinear static, dynamic | 1e-6 |
+| "Number of modes (without maxmode in Mecway)" | modal, buckling, mode superposition, harmonic response, response spectrum, acoustics (cavity modes), vibroacoustics (modes) | 10, except 4 (buckling) and 20 (response spectrum) |
+| "Search frequency [Hz] (0 = lowest modes)" | modal, acoustics (cavity modes) | 0 |
+| "Mode shape normalisation (NORM_MODE)" | modal, buckling | `MASS_GENE` (modal), `RIGI_GENE` (buckling) |
+| "Mode check (VERI_MODE SEUIL)" | modal, buckling, mode superposition, harmonic response, response spectrum, acoustics (cavity modes), vibroacoustics (modes) | 1e-6 |
+| "Solver steps per period of the highest mode" | mode superposition | 50 |
+| "Extra modal damping (fraction of critical)" | mode superposition, harmonic response | 0 |
+| "Static correction truncated modes (MACRO_ELAS_MULT)" | mode superposition, harmonic response | off (mode superposition), on (harmonic response) |
+| "Spectrum table: column 'time' is" | response spectrum | `period` |
+| "Modal damping (fraction of critical)" | response spectrum | 0.05 |
+| "Combination of modes" / "Combination of directions" | response spectrum | `CQC` / `SRSS` |
+| "Missing mass (pseudo-modes, MODE_CORR)" | response spectrum | on |
+
+The frequencies, sources and other settings of the harmonic response, acoustics and
+vibroacoustics are in [`Mode_superposition.md`](Mode_superposition.md) §7 and
+[`Acoustics.md`](Acoustics.md).
+
+Explanation per setting:
+[`Settings_contact_and_nonlinear.md`](Settings_contact_and_nonlinear.md) §2
+(mechanical), [`Thermal.md`](Thermal.md) §2,
+[`Modal_and_buckling.md`](Modal_and_buckling.md) §1.2, [`Mode_superposition.md`](Mode_superposition.md) §1.2, [`Response_spectrum.md`](Response_spectrum.md) §1.2, [`Error_estimator.md`](Error_estimator.md) §1.2 and [`Failure.md`](Failure.md).
+Buckling always looks for the smallest buckling factors, as Mecway does (no setting,
+see [`Modal_and_buckling.md`](Modal_and_buckling.md) §1.2). For a single model you can also set a setting in the model with `#ASTER-OPTIE` (see
+[`ASTER_lines_examples.md`](ASTER_lines_examples.md)); it applies to that run only and
+is not saved.
+
+### 3.1 Large displacements (DEFORMATION)
+
+The bridge chooses `DEFORMATION` per element type
+(`bridge_to_aster._deformation_for`): if you choose `GROT_GDEP`, `GREEN_LAGRANGE`,
+`GDEF_LOG` or `SIMO_MIEHE`, solids get `GREEN_LAGRANGE` (elastic) or
+`GDEF_LOG`/`SIMO_MIEHE` (plastic), DKT/DST `GREEN_LAGRANGE`, `COQUE_3D`
+`GROT_GDEP`, cables always `GROT_GDEP` and beams `PETIT` (WARNING; KNOWN_BUGS 11).
+Details: [`Settings_contact_and_nonlinear.md`](Settings_contact_and_nonlinear.md) §2.3.
+
+## 4. What is translated
+
+The list follows the code (`SUPPORTED_BCS` in `Scripts/bridge_bcs.py`,
+`bridge_from_liml.py`, `bridge_mesh.py` and `bridge_thermal.py`).
+
+| Item | Supported |
+|---|---|
+| Analyses | static 3D (`MECA_STATIQUE`), nonlinear static 3D (`STAT_NON_LINE`), dynamic implicit and explicit (`DYNA_NON_LINE`), mode superposition (`CALC_MODES` + `DYNA_VIBRA` `GENE`; [`Mode_superposition.md`](Mode_superposition.md)), response spectrum (`CALC_MODES` + `COMB_SISM_MODAL`; [`Response_spectrum.md`](Response_spectrum.md)), thermal steady state and transient (`THER_LINEAIRE`, or `THER_NON_LINE` with radiation or convection on shell faces; [`Thermal.md`](Thermal.md)), modal (`CALC_MODES`: natural frequencies, mode shapes, effective mass) and linear buckling (`CALC_MODES` `MODE_FLAMB`: buckling factors and buckling mode shapes; [`Modal_and_buckling.md`](Modal_and_buckling.md)) and acoustic cavity modes (`ACOUSTIQUE` + `CALC_MODES`: frequencies and pressure field; [`Acoustics.md`](Acoustics.md)) and vibroacoustics (`3D_FLUIDE` + `FLUI_STRU` + `CALC_MODES`: coupled modes; [`Acoustics.md`](Acoustics.md) §6; per frequency with `3D_FLUI_ABSO` + `DYNA_VIBRA` `HARM`: §7). No 2D |
+| Elements | beam line2 (line3 gives an ERROR), truss line2 (bar `BARRE`, axial force only, small displacements; beams and trusses in one component become two groups, `<name>_TRUSS`), shell tri3/quad4 (DKT/DST/COQUE_3D) and tri6/quad8 (COQUE_3D), solid tet4/tet10, pyr5/pyr13, wedge6/wedge15, hex8/hex20, spring/damper/gap (line2, discrete, along the element's own axis), nodal mass |
+| Materials | isotropic (E, ν, ρ, thermal expansion), spring, damper, gap (`DIS_CHOC`), tension only (cable); plasticity: isotropic hardening curve, bilinear isotropic/kinematic (Mecway's *tangent modulus* is the plastic modulus H, as Mecway/CCX computes; Code-Aster `D_SIGM_EPSI` = E·H/(E+H); perfectly plastic: tangent modulus 0), kinematic curve with linear hardening (`VMIS_CINE_LINE`), Ramberg-Osgood, OpenRadioss `PLAS_TAB` (KNOWN_BUGS 6 and 34); thermal: conduction and heat capacity, also temperature dependent (*Temperature dependent*) |
+| Cross-sections | solid/hollow circular and rectangular, general section, I/T/L/C profile, plate thickness |
+| Boundary conditions and loads | fixed, pinned support, frictionless, symmetry, displacement, node rotation, velocity, force, moment, surface pressure, traction, line pressure, hydrostatic pressure, gravity (also with a time table, as long as its direction stays fixed: `PESANTEUR` with `FONC_MULT`), centrifugal, elastic support, compression only (nonlinear only) |
+| Welding | moving heat source (Goldak double ellipsoid) in a transient thermal analysis via `#ASTER-LASBRON`, or as a Mecway formula in x, y, z, t (heat generation, heat flux); temperature-dependent conductivity and specific heat; with a Thermal stress then residual stress and distortion (`STAT_NON_LINE`, temperature-dependent E, yield strength and α via `#ASTER-MATERIAL`); phase transformations in steel and hardness (`CALC_META`, CCT diagram) via `#ASTER-METALLURGIE`, optionally with transformation strain in the residual stress: [`Welding.md`](Welding.md) |
+| Failure | elements whose plastic strain exceeds a limit get a very low stiffness and zero stress (nonlinear static and dynamic, solid elements and shells, not beams; limit via `#ASTER-BEZWIJKEN`, `PLAS_TAB` Eps_p_max or a setting): [`Failure.md`](Failure.md) |
+| Fatigue | damage D and life per node of solid elements and shells (top and bottom side) with a Wöhler or strain curve (Manson-Coffin) per material (`#ASTER-WOHLER`), rainflow and Miner, or a critical-plane criterion (Dang Van, Matake, Crossland; `#ASTER-FATIGUE criterion`); load history as blocks or a signal on a static run (`#ASTER-BLOCK`, `#ASTER-SIGNAL`) or the time steps of a nonlinear/dynamic run: [`Fatigue.md`](Fatigue.md) |
+| Other | node-surface coupling (rbe3, rigid body), constraint equation, contact (`contact2` unilateral, nonlinear only: in a linear analysis the bridge stops with an ERROR; no self-contact), bonded contact (`LIAISON_MAIL`, also shell on solid), point mass, rotational inertia, Rayleigh damping (dynamics), thermal stress with temperature, initial velocity |
+| Results | see §4.1 |
+
+Gap, tension only, compression only and contact require a nonlinear analysis: in a
+static, modal or buckling analysis the bridge stops with an ERROR. Not translated,
+and reported at the end of the run: among others self-contact, cyclic symmetry
+outside a modal analysis,
+pre-tension, OpenRadioss cards other than `/FUNCT` and `PLAS_TAB`, VOID materials, a
+nonlinear kinematic curve, loads on the side face of a beam, frictionless with a
+normal displacement on curved shells/shell edges, damping in a modal analysis
+(KNOWN_BUGS 49; cyclic symmetry in a modal analysis is translated:
+[`Modal_and_buckling.md`](Modal_and_buckling.md) §7; loads give stress stiffening, as in Mecway:
+[`Modal_and_buckling.md`](Modal_and_buckling.md) §2.5), and for thermal among others
+beams/fins and
+shells that are not parallel (`KNOWN_BUGS.md`, heading "Niet vertaald" (Not
+translated), and [`Thermal.md`](Thermal.md)). Whatever Mecway cannot enter but
+Code-Aster does know, you add with `#ASTER` lines.
+
+**Units.** The bridge converts every Mecway value with a unit to SI. A unit it does
+not know is used unchanged with a WARNING in the log; check the input in that case.
+
+**Configurations.** The active configuration cannot be read through the Mecway API.
+The bridge solves the configuration in which nothing is suppressed; if there is none
+or more than one, the first, with a WARNING. Items suppressed in it or through a
+suppressed group are left out. The results go into the solution of that
+configuration.
+
+**Load cases and combinations.** Mecway no longer has load cases (they are converted
+to configurations when a file is opened) and a configuration has no factor: it only
+switches load items on or off (manual §2.8; in the `.liml` a `<configuration
+name=".."/>` and per item `<suppressed configuration=".."/>`). A combination such as
+1.2 G + 1.5 Q with factors, and an envelope over load cases, therefore cannot be set
+up in Mecway, and the bridge does not translate them (`MACRO_ELAS_MULT` is not built).
+This is how you do it instead:
+1. Make a configuration for each load case and each combination (Edit → New
+   configuration). Give a combination its own load items with the factored value
+   (e.g. a second gravity with 1.2 × 9.81 m/s² and a second pressure with 1.5 × q)
+   and suppress in each configuration the items that do not belong to it. For linear
+   statics this equals the superposition (Mecway headless: 1.2 G + 1.5 Q to 3e-15
+   relative).
+2. The bridge solves one configuration per run (the rule above); it cannot read
+   which one is active. For another configuration: save the model under another name
+   (File → Save as), delete the other configurations in the copy (right-click the
+   tab → Delete) and start the bridge on the copy. Repeat this for each load case or
+   combination. The bridge then wrongly reports that the active configuration cannot
+   be read (KNOWN_BUGS 68); the result is correct (bridge and Mecway equal to 1e-9).
+3. Mecway's own solver solves all configurations (Solve all configurations;
+   headless `mecway <model> solve` does so too); use it to check a bridge run per
+   configuration.
+
+**Formulas.** A value entered as a formula (Mecway: Formula) is translated when it
+depends on time t only. The bridge samples it the way Mecway does for CCX: 10001
+times from 0 to the Time period, keeping only the points needed to stay within 0.01%
+of the range; the result is a `DEFI_FONCTION`. Mecway's units (value, time in s or
+min) are applied; a formula without t is a plain value. Formulas in x, y or z
+(position-dependent) and formulas the bridge cannot read are reported (ERROR) and not
+included. Allowed: `+ - * / ^`, parentheses, `pi`, `e`, `sin`, `cos`, `tan`, `asin`,
+`acos`, `atan`, `atan2`, `log` (natural), `abs`, `sqrt`, `heaviside`, `unittriangle`,
+`max`, `min`. In a linear static, modal or buckling analysis the value at the end
+time is used. A curved formula (e.g. a sine) gives many time points and therefore
+many solver steps (KNOWN_BUGS 45).
+
+### 4.1 Result fields
+
+With "Result fields to Mecway" you choose per analysis
+which fields the bridge returns; fewer fields give a smaller `.liml`. Names in Mecway
+are the same as those of Mecway's own solution where Mecway knows them.
+
+| Field | Mecway variables | Code-Aster field | On by default for |
+|---|---|---|---|
+| `displacements` | `displx/y/z`, `displmag` (not for modal, as in Mecway); `rotx/y/z` on nodes of beams and shells | `DEPL` | all mechanical analyses |
+| `stresses` | `stressxx` .. `stresszx` (solid elements, nodal values and per element node); `beamsixxmin`/`beamsixxmax` (beams with a rectangular or circular section: smallest/largest axial stress from N and M, without shear and torsion) | `SIGM_NOEU`, `SIGM_ELNO`, `SIPM_ELNO` | static, nonlinear, dynamic, mode superposition, harmonic response, response spectrum, vibroacoustics (harmonic) |
+| `vonmises` | `vonmises` (solid); `vonmisesu1`/`vonmisesm`/`vonmisesb` (shell top/middle/bottom) | `SIEQ_NOEU`, `SIEQ_ELNO` | as `stresses` |
+| `reactions` | `reactionforcex/y/z/mag`, `reactionmomx/y/z/mag` | `REAC_NODA` | static, nonlinear, dynamic, response spectrum |
+| `velocities` | `velx/y/z`, `velmag`; `angularvelx/y/z`, `angularvelmag` at nodes of beams and shells | `VITE` | dynamic, mode superposition |
+| `accelerations` | `accelx/y/z`, `accelmag` (harmonic: `accelampx/y/z`, ω²\|U\|) | `ACCE` (response spectrum: `ACCE_ABSOLU`) | harmonic response, response spectrum, vibroacoustics (harmonic) |
+| `plastic_strain` | `plasticstrainxx` .. `plasticstrainzx` (bridge names) | `EPSP_NOEU` | nonlinear static |
+| `plastic_strain_eq` | `equivalentplasticstrain` | `VARI_NOEU` V1 | nonlinear, dynamic |
+| `temperature` | `temperature` (K) | `TEMP` | thermal |
+| `heat_flux` | `heatfluxx/y/z/mag` | `FLUX_NOEU` | thermal |
+| error estimator (setting *Error estimator*, not in this list) | `errorestimate`, `errorestimaterel` (solid elements, nodal values and per element; bridge names) | `ERME_NOEU`, `ERME_ELNO` | static ([`Error_estimator.md`](Error_estimator.md)) |
+| fatigue (`#ASTER-WOHLER`, not in this list) | `damage` (damage D), `life` (repetitions until D = 1); shells also `damage_top`/`damage_bottom`, with a criterion `fatigue_eq`/`fatigue_ratio`; nodal values, bridge names | from `SIGM_NOEU`/`EPSI_NOEU`/`SIEQ_NOEU` (rainflow, Miner; `aster_fatigue.py`) or `CALC_FATIGUE FATIGUE_MULTI` | static, nonlinear, dynamic ([`Fatigue.md`](Fatigue.md)) |
+| `metallurgy` | `ferrite`, `pearlite`, `bainite`, `martensite`, `austenite` (phase fractions), `hardness` (if the dataset has hardness); names of the bridge | `META_NOEU`, `DURT_NOEU` | thermal transient: always included with `#ASTER-METALLURGIE`, route `liml` only ([`Welding.md`](Welding.md) §10) |
+| pressure (acoustics, not in this list) | `pressure` per mode (Mecway's name); harmonic per frequency also `pressurei`, `pressuremag`, `pressurephase`, `spl` | `PRES` (vibroacoustics: `DEPL` component `PRES`) | acoustics, always ([`Acoustics.md`](Acoustics.md)) |
+
+For modal and buckling the bridge returns only the shapes (`displacements`), as
+Mecway does; other selected fields are ignored (INFO in the log). Nodal stresses
+follow the Code-Aster standard (extrapolation and averaging per node) and therefore
+differ from Mecway (KNOWN_BUGS 3). Shell stress tensors (local axes) are not loaded.
+
+## 5. Files in the working directory
+
+All files of a run are called `<model>_<run-id>...`: `<model>` is the name of the
+Mecway file (characters other than A-Z, a-z, 0-9, `-` and `_` become `_`, without double or
+trailing `_`, e.g. `My Model (v2).liml` → `My_Model_v2`; shortened
+if the path is too long, §1), `<run-id>` the date and time of the start, e.g.
+`ProfielBuigen_20261006_101500.mess`. So they can be found together and a next run
+overwrites nothing. Messages show the real name.
+
+| File | Contents |
+|---|---|
+| `<model>_<run-id>_bridge_log.txt` | log of the bridge (INFO/WARNING/ERROR per step); `bridge_log.txt`: only messages outside a run (e.g. Results...) |
+| `<model>_<run-id>.mail` | the mesh (ASTER format) |
+| `<model>_<run-id>.comm`, `<model>_<run-id>.export` | Code-Aster input; can be rerun with `run_aster.bat <model>_<run-id>.export` |
+| `<model>_<run-id>.mess` | Code-Aster messages (errors, alarms, tables with `UNITE=6`) |
+| `<model>_<run-id>_console.txt` | full console output of Code-Aster (including Python errors) |
+| `<model>_<run-id>_results.xml` | **the results** in Mecway's own format (route `liml`); the bridge puts them into the `.liml` and keeps the file, so you can load them again later (§5.1) |
+| `<model>.liml.bak` | the `.liml` from before results were read in or removed |
+| `<model>_<run-id>.resu` | result tables, only with route `tabel` |
+| `<model>_<run-id>.rmed` | results in MED (ParaView/Salome), only with "MED file for ParaView" |
+| `<model>_<run-id>_vergelijking.csv` | comparison with the Mecway solve (only with "Mecway solve first as a check") |
+| `<model>_<run-id>_monitor_log.txt` | log of the convergence and messages window |
+
+Files without a timestamp from older bridge versions (`study.mess`,
+`model_mesh.mail`, `study_results.xml`, ...) are removed by the bridge at the start of
+a run. Files with a timestamp are kept; delete old runs yourself when you no longer
+need them (`_results.xml` and `.rmed` can be large).
+
+### 5.1 Loading results again later (small .liml)
+
+Mecway only shows results that are in the `.liml`, which therefore becomes large
+(about the size of `<model>_<run-id>_results.xml`). With the "Results..." button in the main window you choose:
+
+- **"Remove from model"**: removes all results from the open
+  `.liml` (previous version: `.bak`). The model itself stays the same and the `.liml`
+  is small again; the result files in the work folder are kept.
+- **"Load"**: pick a run from the list (newest first, with date, model and
+  size), or a `_results.xml` elsewhere with "Other file...". The
+  bridge first checks that the mesh is the same: node and element numbers, and the
+  node coordinates via `<model>_<run-id>.mail` of the same run (so keep that file
+  with the results). If the mesh has changed, the results are not loaded.
+
+Both save the model first and then reopen it. The results are those of the run: if
+you change loads or materials afterwards, they no longer belong to them (only the
+mesh is checked).
+
+## 6. Reading errors
+
+- **Message before Code-Aster** ("Writing the mesh failed", "Generating the solver
+  files failed", "No materials found in the model", "The work folder is too long",
+  analysis type not supported):
+  see the ERROR lines in `<model>_<run-id>_bridge_log.txt`.
+- **"Code-Aster reports errors in `<model>_<run-id>.mess`"**: the bridge searches the `.mess` for `<EXCEPTION>`,
+  `<F>`, `<S>`, `<E>` and `<...Error>` and shows the first five messages. For a known
+  code it gives an explanation:
+  - `FACTOR_10/11/42/57` and `MECANONLINE9_4`: singular stiffness matrix; usually a
+    part can move freely or there are duplicate supports;
+  - `MECANONLINE9_7`: Newton does not converge; the results up to the last time
+    reached have been loaded. See
+    [`Settings_contact_and_nonlinear.md`](Settings_contact_and_nonlinear.md) §4;
+  - `ALGELINE3_81` (modal): singular stiffness due to a mechanism;
+    `ALGELINE5_49` / `ALGELINE3_78`: too few modes around the search frequency. See
+    [`Modal_and_buckling.md`](Modal_and_buckling.md) §4;
+  - `ALGORITH16_52`, `ALGORITH16_58`, `ALGORITH14_94` (cyclic symmetry): the cut
+    faces do not repeat about the axis. See [`Modal_and_buckling.md`](Modal_and_buckling.md) §7.
+
+  Alarms (`<A>`) appear as WARNINGs in the log, with an explanation for known codes:
+  mode check `ALGELINE5_23`, `ALGELINE2_74`; `ALGELINE3_82` (lower bound of the Sturm
+  band on a rigid mode, usually harmless); `MODELISA4_8`/`MODELISA8_13` (duplicate
+  cells, normal in vibroacoustics); with complex modes `ALGELINE5_79` (fewer modes
+  than requested) and `FACTOR_11` (free-free model). All codes seen so far, with cause and
+  solutions: [`CodeAster_error_messages.md`](CodeAster_error_messages.md).
+- **"Code-Aster wrote no `<model>_<run-id>.mess` for this run"** or **only "DIAGNOSTIC JOB : <F>_ABNORMAL_ABORT"** without a message: the
+  cause is in the Code-Aster window (which then stays open).
+- **"Python error in `<model>_<run-id>.comm`"**: the `.comm` was not (fully) executed, usually because of a
+  typo in `#ASTER` lines. The message names the faulty line; the full output is in
+  `<model>_<run-id>_console.txt`.
+- **Results differ from Mecway**: see `KNOWN_BUGS.md` (among others hex8 stiffer,
+  nodal stresses according to the Code-Aster standard).
+
+## 7. Assumptions
+
+The main assumptions for use; the full list, with the reasoning behind the defaults,
+is in [`Default_settings_and_assumptions.md`](Default_settings_and_assumptions.md).
+
+- **Assumption:** the `.liml` format of Mecway 33 (tested); other versions have not
+  been tested.
+- **Assumption:** the configuration without suppressed items is the intended one
+  (§4); the API cannot read the active configuration.
+- **Assumption:** the top of a shell in Code-Aster (`SUP`, side of the positive
+  element normal) is Mecway's `vonmisesu1`; NOT verified.
+- **Assumption:** a formula in t is sampled the way Mecway does for CCX (§4).
+- The non-modal main window and its buttons have NOT been verified in Mecway for all
+  actions (KNOWN_BUGS 38).
+- The bridge does not imitate Mecway exactly where Code-Aster has its own standard
+  (e.g. nodal stresses, hex8): the choice follows Code-Aster, with options where
+  possible.
+
+## 8. References
+
+- EDF R&D (2019). *Code_Aster, documentation U4.51.01: Opérateur MECA_STATIQUE*.
+  Version "default", 10-12-2019 (local copy; the bridge uses Code-Aster 17.4).
+- EDF R&D (2020). *Code_Aster, documentation U4.51.03: Opérateur STAT_NON_LINE*.
+  Version "default", 30-04-2020.
+- EDF R&D (2021). *Code_Aster, documentation U4.50.01: Mot clé SOLVEUR*. Version
+  "default", 04-11-2021.
+- EDF R&D (2016). *Code_Aster, documentation U3.14.01: Modélisations 3D et 3D_SI
+  mécaniques*. Version "default", 21-12-2016.
+- EDF R&D (2018). *Code_Aster, documentation R3.07.03: Éléments de plaque :
+  modélisations DKT, DST, DKTG et Q4G*. Version "default", 28-06-2018.
+- EDF R&D (2025). *code_aster 17.4, command catalogue*
+  (`lib/aster/code_aster/Cata/Commands/*.py` of the Windows installation): default
+  values and allowed choices of the keywords.
+- Mecway Ltd. (2026). *Mecway Finite Element Analysis, Manual, Version 33*
+  (`C:\Program Files\Mecway\manual.pdf`): §2.8 Configurations, §6 Analysis types,
+  §16.2 Scripts.
+
+The Code-Aster documents above are the local (English, machine-translated) copies in
+the Code-Aster documentation folder; their content may differ in details from version
+17.4. Where the behaviour of 17.4 matters, it has been checked in the catalogue or
+with a run (see [`Verification.md`](Verification.md)).
+
+## Trademarks
+
+Mecway is a product of Mecway Ltd. Code_Aster is a trademark of EDF. This project is not affiliated with or endorsed by Mecway Ltd or EDF.

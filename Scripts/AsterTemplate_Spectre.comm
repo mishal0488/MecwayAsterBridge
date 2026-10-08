@@ -1,0 +1,93 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor de responsspectrumanalyse (aardbeving, schok): eigenmodes
+# (CALC_MODES), de spectrale respons per mode en de combinatie over de
+# modes en de richtingen (COMB_SISM_MODAL), terug naar Mecway als een stap
+# met de maxima. Invulling via str.format() vanuit bridge_spectrum.py.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> DEFI_GROUP / CREA_MAILLAGE / MODI_MAILLAGE
+#   model_block       -> AFFE_MODELE per elset
+#   cara_elem_block   -> AFFE_CARA_ELEM (balken, schalen, veren, knoopmassa's)
+#   materials_block   -> DEFI_MATERIAU per materiaal (met RHO)
+#   fieldmat_block    -> AFFE_MATERIAU toewijzing
+#   loads_block       -> AFFE_CHAR_MECA: de opleggingen (en #ASTER-code)
+#   assemblage_block  -> ASSEMBLAGE: RIGI_MECA en MASS_MECA met de
+#                        opleggingen
+#   calc_modes_block  -> modes = CALC_MODES(...), het modeoverzicht en de
+#                        modale velden (CALC_CHAMP)
+#   spectrum_block    -> spectra per richting, demping per mode,
+#                        pseudo-modes (missing mass) en COMB_SISM_MODAL
+#   result_block      -> de maxima als een resultaat (aster_spectrum) en
+#                        CALC_CHAMP (spanningen)
+#   export_block      -> aster_results_export (Mecway-resultaat, een stap)
+#   impr_resu_block   -> IMPR_RESU MED (alleen met "med_export")
+#
+# Een accolade die geen placeholder is: verdubbelen ({{ of }}).
+
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(
+        NOM='all_elems',
+        TOUT='OUI',
+    ),
+    CREA_GROUP_NO=_F(
+        NOM='all_nodes',
+        GROUP_MA='all_elems',
+    ),
+)
+
+{defigroup_block}
+
+# =====================================================
+# 2. MODEL, SECTIES, MATERIALEN (zoals MECA_STATIQUE)
+# =====================================================
+{model_block}
+
+{cara_elem_block}
+
+{materials_block}
+
+{fieldmat_block}
+
+# =====================================================
+# 3. OPLEGGINGEN
+# =====================================================
+{loads_block}
+
+# =====================================================
+# 4. MATRICES (ASSEMBLAGE, U4.61.21) EN EIGENMODES (CALC_MODES, U4.52.02)
+# =====================================================
+{assemblage_block}
+
+{calc_modes_block}
+
+# =====================================================
+# 5. SPECTRA EN COMBINATIE (COMB_SISM_MODAL, comb_sism_modal_ops.py)
+# =====================================================
+{spectrum_block}
+
+# =====================================================
+# 6. MAXIMA ALS RESULTAAT EN SPANNINGEN
+# =====================================================
+{result_block}
+
+# =====================================================
+# 7. RESULTATEN NAAR MECWAY
+# =====================================================
+{export_block}
+
+{impr_resu_block}
+
+FIN()

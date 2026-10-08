@@ -1,0 +1,103 @@
+# Copyright (C) 2026 trednuK
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Code_Aster Command File - Gegenereerd via MecwayAsterBridge
+# Template voor thermische analyses (Mecway T30 stationair / T31 transient):
+# THER_LINEAIRE, of THER_NON_LINE bij straling of convectie/straling op
+# schaalvlakken. Invulling via str.format() vanuit bridge_thermal.py
+# (build_thermal).
+#
+# Temperaturen staan in graden CELSIUS (RAYONNEMENT rekent met T + 273,15,
+# U4.44.02); aster_results_export.py zet 'temperature' terug naar Kelvin.
+#
+# Placeholders (naam tussen enkele accolades):
+#   defigroup_block   -> MODI_MAILLAGE ROTATION (schalen buiten Z = constant),
+#                        DEFI_GROUP (deelgroepen per soort vlak en per
+#                        schaaldikte, knoopgroepen voor knooptemperaturen)
+#                        en MODI_MAILLAGE ORIE_PEAU
+#   model_block       -> AFFE_MODELE: volumes '3D', vlakke schalen en hun
+#                        randen 'PLAN', vlakken van volumes '3D'
+#   materials_block   -> DEFI_MATERIAU THER (lineair) of THER_NL
+#   fieldmat_block    -> AFFE_MATERIAU per elset
+#   funcs_block       -> DEFI_FONCTION / DEFI_CONSTANTE (tijdstabellen,
+#                        bronnen als functie van TEMP), FORMULE van INST
+#                        (schaalvlak-convectie/-straling met een tijdstabel)
+#   listinst_block    -> DEFI_LIST_REEL (+ CREA_CHAMP begintemperatuur)
+#   loads_block       -> AFFE_CHAR_THER(_F) load_1, load_2, ...; heatflow op
+#                        knopen: bronveld M^-1 F (loadqn_1, ...)
+#   solve_block       -> THER_LINEAIRE / THER_NON_LINE
+#   calc_champ_block  -> res_flux = CALC_CHAMP FLUX_ELGA, FLUX_ELNO, FLUX_NOEU
+#                        (gedraaid mesh: flux en mesh terug gedraaid)
+#   export_block      -> aster_results_export (Mecway-resultaten)
+#
+# Een accolade die geen placeholder is: verdubbelen ({{ of }}).
+
+DEBUT(LANG='EN')
+
+# =====================================================
+# 1. MESH (FORMAT='ASTER', bridge_mesh.py; UNITE=20 = 'F mail ... D 20')
+# =====================================================
+mesh = LIRE_MAILLAGE(UNITE=20, FORMAT='ASTER')
+
+mesh = DEFI_GROUP(
+    reuse=mesh,
+    MAILLAGE=mesh,
+    CREA_GROUP_MA=_F(NOM='all_elems', TOUT='OUI'),
+    CREA_GROUP_NO=_F(NOM='all_nodes', GROUP_MA='all_elems'),
+)
+
+{defigroup_block}
+
+# =====================================================
+# 2. MODEL (PHENOMENE='THERMIQUE')
+# =====================================================
+{model_block}
+
+# =====================================================
+# 3. MATERIALEN
+# THER: LAMBDA (geleiding) en RHO_CP (dichtheid x soortelijke warmte).
+# Schalen als PLAN: beide maal f = t / t_ref (zie bridge_thermal.py).
+# =====================================================
+{materials_block}
+{fieldmat_block}
+
+# =====================================================
+# 4. FUNCTIES (tijd: PROL CONSTANT; temperatuur: PROL LINEAIRE)
+# =====================================================
+{funcs_block}
+
+# =====================================================
+# 5. TIJDSTAPPEN (stationair: alleen 0.0) EN BEGINTEMPERATUUR
+# =====================================================
+{listinst_block}
+
+# =====================================================
+# 6. RANDVOORWAARDEN EN BELASTINGEN
+# Elke Mecway-belasting een eigen last (EXCIT telt op); opgelegde
+# temperaturen samen in de eerste last(en).
+# =====================================================
+{loads_block}
+
+# =====================================================
+# 7. OPLOSSEN
+# =====================================================
+{solve_block}
+
+# =====================================================
+# 8. WARMTEFLUX
+# =====================================================
+{calc_champ_block}
+
+# =====================================================
+# 9. RESULTATEN NAAR MECWAY
+# =====================================================
+{export_block}
+
+# =====================================================
+# 10. MED (ParaView / Salome), alleen met de instelling "med_export";
+# UNITE=80 = 'F rmed ... R 80'
+# =====================================================
+{med_block}
+
+FIN()
