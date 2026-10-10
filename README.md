@@ -9,6 +9,7 @@ Code-Aster mesh, `.comm` and `.export`, starts Code-Aster in a separate window a
 the results back into the Mecway model, where you post-process them with Mecway's own
 tools. Features that Mecway has no input for can be added per model with `#ASTER` lines
 in Mecway's *Custom model definition*.
+
 [![Architecture diagram](https://gitdiagram.com/diagram-badge.svg)](https://gitdiagram.com/trednuk/mecwayasterbridge?utm_source=readme&utm_medium=badge)
 
 Version: **V2026.1** (see [`CHANGELOG.md`](CHANGELOG.md)). Dutch documentation:
