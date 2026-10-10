@@ -22,7 +22,7 @@ Version: **V2026.1** (see [`CHANGELOG.md`](CHANGELOG.md)). Dutch documentation:
 - **Code-Aster 17.4 for Windows**. Windows builds are available from
   <https://simulease.com/en/download/> (MSI installer "Code_Aster 2025", which installs
   version 17.4; accessed 6 October 2026). The official site
-  <https://www.code-aster.org> does not list a Windows version.
+  [<https://www.code-aster.org>](https://open-simulation-center.org/downloads/code_aster/code_aster/17.4.0) does also list a Windows version.
 - Nothing else: the bridge is standalone and uses only the Python that comes with Mecway
   and with Code-Aster. No `pip` packages, no extensions.
 
