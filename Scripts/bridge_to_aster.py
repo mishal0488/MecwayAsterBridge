@@ -1098,8 +1098,9 @@ def _result_groups(model_data, verbose=False):
         elif mod == "POU_D_T_GD":
             # The 17.4 element catalogue has SIEF_ELNO, not SIPM_ELNO.
             if verbose:
-                log("INFO: POU_D_T_GD '{0}': section forces in SIEF_ELNO "
-                    "(MED); no Mecway beam stress recovery.".format(group))
+                log("INFO: POU_D_T_GD '{0}': element-node section forces "
+                    "and moments exported to Mecway (liml) and MED; "
+                    "no beam stress recovery.".format(group))
         elif mod in _SMALL_BEAM_MODELISATIONS:
             section = beam_secs.get(group, {}).get("aster_section")
             mat = model_data.get("elsets", {}).get(group)
@@ -6468,9 +6469,13 @@ def _check_gd_beams(model_data, analysis):
         log("WARNING: POU_D_T_GD uses large rotations, but bridge-generated "
             "rigid/interpolation couplings retain their existing linear "
             "constraint equations. Check connection kinematics.")
-    log("INFO: POU_D_T_GD: elastic geometric nonlinearity; displacements "
-        "and reactions are exported to Mecway. Enable MED export for "
-        "SIEF_ELNO section forces/moments; beam stresses are not exported.")
+    log("INFO: POU_D_T_GD: displacements, reactions and element-node beam "
+        "forces/moments are exported to Mecway via result_route='liml'. "
+        "Beam stresses are not exported.")
+    if CONFIG_BRIDGE.get("result_route", "liml") != "liml":
+        log("WARNING: Beam forces/moments require result_route='liml'; "
+            "the legacy table import supports nodal results only. "
+            "Select the liml results route to retain element-end values.")
     return True
 
 

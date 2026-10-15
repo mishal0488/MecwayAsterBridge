@@ -29,10 +29,28 @@ existing constraint equations and need particular care for large motion.
 
 ## Results
 
-Displacements and reactions use the existing Mecway result routes. Enable
-**MED export** to inspect local beam section resultants `N`, `VY`, `VZ`,
-`MT`, `MFY`, `MFZ` in `SIEF_ELNO`. These are forces/moments, not stress
-tensor components. The Code_Aster 17.4 large-rotation beam does not implement
+The default **LIML result route** includes displacements, reactions and
+these local beam section resultants at every archived time step:
+
+| Code_Aster SIEF_ELNO | Mecway result |
+| --- | --- |
+| N | Axial force (`tensileforce`) |
+| VY / VZ | Shear forces (`sheary` / `shearz`) |
+| MT | Torsional moment (`torsion`) |
+| MFY / MFZ | Bending moments (`bendingmomv` / `bendingmomw`) |
+
+Local y/z correspond to beam V/W axes. Select element values in Mecway;
+the bridge preserves separate values for each element and does not average
+local forces across beam junctions. MED export is optional. The legacy
+table import route is nodal only; choose LIML for these section results.
+
+For POU_D_T_GD, Code_Aster 17.4 extrapolates its single integration-point
+result to both element nodes. Consequently each element has constant
+displayed resultants; bending moments under transverse loading are not
+independently recovered equilibrium end moments. Check mesh refinement.
+
+These are forces/moments, not stress tensor components.
+The Code_Aster 17.4 large-rotation beam does not implement
 `SIPM_ELNO`; extreme beam stresses are therefore not exported to Mecway for
 this formulation. Existing beam stress output remains unchanged for
 POU_D_E/POU_D_T.
@@ -79,7 +97,15 @@ absolute residual of 1e-6 N: excessively strict relative-only tolerances
 can stagnate at round-off for small loads. These benchmarks validate the
 tested rectangular cantilevers; they do not establish numerical accuracy
 for all section shapes, distributed/follower loads, or connection types.
-All seven offline test scripts also passed, including ten new beam tests.
+All eight offline test scripts pass, including ten beam translation tests
+and four section-result export tests (`tests/test_beam_resultants.py`).
+
+Section-result export was also checked with Code_Aster 17.4 and Mecway 34:
+all six arrays survived a Mecway load/save round trip exactly. A combined
+axial/shear/torsion/bending cantilever confirmed local-axis signs against
+a small-displacement Mecway reference. GB-02 was rerun with all six fields
+at all 41 archived steps; its bending moment matched the prescribed moment
+history with a maximum error of 3.5e-8 relative to the full applied moment.
 
 References checked against Code_Aster 17.4:
 

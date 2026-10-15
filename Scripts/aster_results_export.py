@@ -155,6 +155,15 @@ KNOOP = "knoop"
 ELNO_MIN = "elno_min"
 ELNO_MAX = "elno_max"
 ELEMKNOOP = "elementknoop"
+BEAM_ELEMKNOOP = "beam_elementknoop"
+
+# Mecway 34 native beam results (verified by a headless Mecway solve).
+# V/W correspond to the beam's local y/z axes. Keep element-node values:
+# averaging local resultants at a frame joint mixes different coordinate
+# systems and loses jumps at point loads/connections.
+BEAM_RESULTANTS = (("N", "tensileforce"), ("VY", "sheary"),
+                   ("VZ", "shearz"), ("MT", "torsion"),
+                   ("MFY", "bendingmomv"), ("MFZ", "bendingmomw"))
 
 _STRESS_CMPS = (("SIXX", "xx"), ("SIYY", "yy"), ("SIZZ", "zz"),
                 ("SIXY", "xy"), ("SIYZ", "yz"), ("SIXZ", "zx"))
@@ -164,6 +173,8 @@ _EPS_CMPS = (("EPXX", "xx"), ("EPYY", "yy"), ("EPZZ", "zz"),
              ("EPXY", "xy"), ("EPYZ", "yz"), ("EPXZ", "zx"))
 
 FIELD_TABLE = (
+    [("stresses", "res", "SIEF_ELNO", c, name, BEAM_ELEMKNOOP)
+     for c, name in BEAM_RESULTANTS] +
     [("displacements", "res", "DEPL", c, "displ" + s, KNOOP)
      for c, s in _XYZ] +
     [("displacements", "res", "DEPL", c, "rot" + s, KNOOP)
@@ -640,14 +651,15 @@ def _plan_elno_node(fields, rkey, field, cmp_, name, kind, conn):
                                kind == ELNO_MIN))
 
 
-def _plan_elem(fields, rkey, field, cmp_, name, conn, model):
+def _plan_elem(fields, rkey, field, cmp_, name, conn, model,
+               shapes=SOLID_SHAPES):
     found = _cells_field(fields, rkey, field, cmp_, conn)
     if found is None:
         return None
     d, icmp, (start, nbpt, nbsp) = found
-    solids = dict((e, v) for e, v in model["elements"].items()
-                  if v[0] in SOLID_SHAPES)
-    cells = _match_cells(conn, solids, nbpt, nbsp, fields.n)
+    elements = dict((e, v) for e, v in model["elements"].items()
+                  if v[0] in shapes)
+    cells = _match_cells(conn, elements, nbpt, nbsp, fields.n)
     eids, gather = [], []
     for eid in sorted(cells):
         c = cells[eid]
@@ -657,7 +669,7 @@ def _plan_elem(fields, rkey, field, cmp_, name, conn, model):
         # ELNO-punt k hoort bij knoop conn[c][k]; Mecway wil de volgorde van
         # het nodes-attribuut van <elem>.
         gather.extend(start[c] + cn.index(nid - 1)
-                      for nid in solids[eid][1])
+                      for nid in elements[eid][1])
         eids.append(eid)
     if not eids:
         return None
@@ -680,6 +692,9 @@ def _plan_variables(fields, model, conn, groups_wanted, magnitudes=True):
             var = _plan_node(fields, rkey, field, cmp_, name)
         elif kind in (ELNO_MIN, ELNO_MAX):
             var = _plan_elno_node(fields, rkey, field, cmp_, name, kind, conn)
+        elif kind == BEAM_ELEMKNOOP:
+            var = _plan_elem(fields, rkey, field, cmp_, name, conn, model,
+                             shapes=("line2",))
         else:
             var = _plan_elem(fields, rkey, field, cmp_, name, conn, model)
         if var is None:
