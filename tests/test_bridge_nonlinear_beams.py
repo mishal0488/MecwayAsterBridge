@@ -136,7 +136,22 @@ class BeamTranslationTests(unittest.TestCase):
             self.assertIn("RELATION='ELAS'", text)
             self.assertIn("DEFORMATION='PETIT'", text)
             self.assertIn("SIPM_ELNO", text)
+            self.assertIn("SIEF_ELNO", text)
             self.assertNotIn("ELAS_POUTRE_GR", text)
+
+    def test_classical_general_section_has_diagram_results_without_stresses(self):
+        section = ('<geometric type="UniformGeneralSection" area="0.0006 m2" '
+                   'iyy="4.5e-8 m4" izz="2e-8 m4" '
+                   'torsionconstant="4e-8 m4" />')
+        utils.CONFIG_BRIDGE['med_export'] = False
+        for mod in ('POU_D_E', 'POU_D_T'):
+            utils.CONFIG_BRIDGE['elem_beam'] = mod
+            _, export = self.translate(beam_model(section))
+            self.assertTrue(export, self.logs)
+            text = self.commands()
+            self.assertIn("CONTRAINTE=('SIEF_ELNO', )", text)
+            self.assertNotIn('SIPM_ELNO', text)
+            self.assertIn('aster_results_export.export_results', text)
 
     def test_numerical_benchmark_commands(self):
         import tests_nonlinear_beams as benchmarks

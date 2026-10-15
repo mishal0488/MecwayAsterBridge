@@ -1270,14 +1270,15 @@ def _build_calc_champ_block(model_data, with_plastic=False, reactions=True):
                 "",
             ]
 
-    gd_beams = [g for g, m in model_data.get(
-        "elset_modelisations", {}).items() if m == "POU_D_T_GD"]
-    if gd_beams:
+    resultant_beams = [g for g, m in model_data.get(
+        "elset_modelisations", {}).items()
+        if m in _SMALL_BEAM_MODELISATIONS or m == "POU_D_T_GD"]
+    if resultant_beams:
         out += [
-            "# Large-rotation beams: local section forces and moments.",
+            "# Beams: local section forces and moments, including general sections.",
             "res = CALC_CHAMP(reuse=res, RESULTAT=res,",
             "    GROUP_MA={0}, CONTRAINTE=('SIEF_ELNO', ))".format(
-                _fmt_groups(gd_beams)),
+                _fmt_groups(resultant_beams)),
             "",
         ]
 

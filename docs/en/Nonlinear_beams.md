@@ -44,6 +44,12 @@ the bridge preserves separate values for each element and does not average
 local forces across beam junctions. MED export is optional. The legacy
 table import route is nodal only; choose LIML for these section results.
 
+POU_D_E and POU_D_T also request these section resultants, including for
+general sections without extreme-fibre stress recovery. Selecting nonlinear
+static alone does not change the beam formulation: choose POU_D_T_GD explicitly
+for geometric nonlinearity. After updating the bridge, rerun the analysis;
+reloading an old results file cannot add missing solver fields.
+
 For POU_D_T_GD, Code_Aster 17.4 extrapolates its single integration-point
 result to both element nodes. Consequently each element has constant
 displayed resultants; bending moments under transverse loading are not
@@ -99,6 +105,8 @@ tested rectangular cantilevers; they do not establish numerical accuracy
 for all section shapes, distributed/follower loads, or connection types.
 All eight offline test scripts pass, including ten beam translation tests
 and four section-result export tests (`tests/test_beam_resultants.py`).
+An additional translation regression checks section-force output for classical
+general-section beams with MED export disabled.
 
 Section-result export was also checked with Code_Aster 17.4 and Mecway 34:
 all six arrays survived a Mecway load/save round trip exactly. A combined
