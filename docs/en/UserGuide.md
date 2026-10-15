@@ -490,8 +490,19 @@ Static displacements also match analytical section stiffness. Run:
 python TestFiles/Verificatie/check_beam_orientations.py PATH_TO_RUN_ASTER NEW_OUTPUT_DIRECTORY
 ```
 
-These benchmarks already passed before explicit default orientations were
-added: they confirm that explicit rotations and IY/IZ mapping work for the
-tested section. Always writing default orientations removes reliance on
-solver defaults, but does not by itself establish the cause of a particular
-model's stiffness or frequency discrepancy.
+Both LIML orientation formats are supported: per-element
+`orientationvx/vy/vz` and `angle` attributes, and selection-based
+`<orientation selection="...">` cards containing `vx`, `vy`, `vz` and
+`angleu`. The latter are used by Mecway 34 and must be resolved before
+generating beam axes or offsets. Suppressed cards are ignored. Cards on
+non-beam elements and conflicting overlapping cards are rejected.
+
+The benchmark also checks selection cards against the equivalent
+per-element vectors and rotations. Missing cards can leave a model with
+valid-looking default VECT_Y entries but the wrong physical section axes.
+Check the log for `Beam orientation card ... applied to ... elements`.
+
+Flexible beam joints (`flexiblejoint`) are still unsupported and reported
+as omitted in the log. Such a model is solved with rigid beam connections;
+correct orientation handling alone does not make it equivalent to the
+original released-joint model.

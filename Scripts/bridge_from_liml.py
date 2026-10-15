@@ -39,6 +39,7 @@
 # Compatibel met IronPython 2.7.9.
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from bridge_utils import (log, parse_and_convert, CONFIG_BRIDGE,
                           resolve_auto_analysis, tr)
@@ -267,6 +268,44 @@ def _run_analysis_cfg(mecway_type, mode_superposition=False):
 # ==========================================
 # HULPFUNCTIE: GENERALE-SECTIE DICT
 # ==========================================
+def _apply_beam_orientation_cards(model_data):
+    """Resolve selection-based Mecway orientation cards after modelisation.
+
+    Newer LIML files store these as model items rather than elem attributes.
+    Keep the same vector/angle representation used by the mesh and offsets.
+    """
+    elements = dict((e[0], e) for e in model_data['mesh_elements'])
+    assigned = {}
+    for item in model_data.get('beam_orientation_cards', []):
+        selection = item.get('selection', '')
+        ids = model_data['element_selections'].get(selection)
+        if ids is None:
+            ids = [eid for eid, e in elements.items() if e[3] == selection]
+        if not ids:
+            raise ValueError('Beam orientation selection %r is empty or missing.' % selection)
+        vec = tuple(float(item.findtext(c, '0')) for c in ('vx', 'vy', 'vz'))
+        angle_text = item.findtext('angleu', '0 rad')
+        if not re.match(r'^[-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?\s*(?:rad|deg)?$',
+                        angle_text.strip().replace(u'\u00b0', 'deg')):
+            raise ValueError('Beam orientation angle must be a constant number in radians or degrees.')
+        angle = parse_and_convert(angle_text, 'angle')
+        if not all(not math.isnan(x) and not math.isinf(x) for x in vec + (angle,)):
+            raise ValueError('Beam orientation must have finite vector and angle values.')
+        if not any(vec):
+            raise ValueError('Beam orientation card %r needs a nonzero V vector.' % selection)
+        orientation = {'vec': vec, 'angle': angle}
+        for eid in ids:
+            e = elements.get(eid)
+            if not e or not model_data['elset_modelisations'].get(e[3], '').startswith('POU_'):
+                raise ValueError('Orientation card %r: only beam elements are supported (element %s).' % (selection, eid))
+            if eid in assigned and assigned[eid] != orientation:
+                raise ValueError('Conflicting orientation cards on beam element %s.' % eid)
+            assigned[eid] = orientation
+            model_data['beam_orientations'][eid] = dict(orientation)
+        log('INFO: Beam orientation card %r applied to %s elements: V=%s, angle=%s rad.' %
+            (selection, len(ids), vec, angle))
+
+
 def _parse_beam_orientation(elem):
     """
     Orientatie van een balkelement uit de <elem>-attributen, of None.
@@ -1890,6 +1929,9 @@ def extract_aster_data_from_liml(file_path):
                         "niet mee in deze analyse.".format(
                             tag, item.get("selection", "")))
                 continue
+            elif tag == "orientation":
+                if item.get('suppressed', '') != 'true':
+                    model_data.setdefault('beam_orientation_cards', []).append(item)
             elif tag == "offset":
                 if item.get('suppressed', '') != 'true':
                     from bridge_offsets import read_vector
@@ -2401,6 +2443,7 @@ def extract_aster_data_from_liml(file_path):
         # ==========================================
         # STAP 4: has_rot_dofs VOOR HET MODEL + BC-HERBEREKENING
         # ==========================================
+        _apply_beam_orientation_cards(model_data)
         model_data["has_rot_dofs"] = any(
             mod in _ROT_DOF_MODELISATIONS
             for mod in model_data["elset_modelisations"].values()

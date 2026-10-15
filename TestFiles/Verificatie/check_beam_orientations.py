@@ -16,7 +16,10 @@ def make_model(kind, orientation):
     m.mat('Steel','<geometric type="I" ia="0.1 m" ib="0.05 m" ic="0.01 m" id="0.008 m" />',
           '<mechanical type="Isotropic" youngsmodulus="210 GPa" poissonratio="0.3" />',
           '<density density="7850 kg/m3" />')
-    if orientation:
+    if orientation.startswith('<orientation'):
+        m.element_selection('Orient',eids)
+        m.add(orientation)
+    elif orientation:
         elems=m.elsets[0][2]
         for i,(eid,shape,nids,_) in enumerate(elems):
             elems[i]=(eid,shape,nids,orientation)
@@ -46,7 +49,9 @@ def main():
     report={}
     for name,orientation,I in [('default','',Iy),('vector_y','orientationvy="1"',Iy),
                               ('rotated','orientationvy="1" angle="90 deg"',Iz),
-                              ('vector_x','orientationvx="1"',Iz)]:
+                              ('vector_x','orientationvx="1"',Iz),
+                              ('card_rotated','<orientation selection="Orient"><vy>1</vy><angleu>90 deg</angleu></orientation>',Iz),
+                              ('card_vector','<orientation selection="Orient"><vy>1</vy><angleu>0 rad</angleu></orientation>',Iy)]:
         for kind in ('static','modal'):
             case=name+'_'+kind
             m=make_model(kind,orientation)

@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0]=[os.path.join(ROOT,'Scripts'),os.path.join(ROOT,'TestFiles','Verificatie')]
 import bridge_utils as u
@@ -30,19 +31,23 @@ class OrientationTests(unittest.TestCase):
         u.CONFIG_BRIDGE.update(self.config)
         for mod,logger in self.loggers: mod.log=logger
 
-    def translate(self, beams):
+    def translate(self, beams, cards=None):
         m=Model('S30')
         m.mat('Steel','<geometric type="RectBar" recta="0.02 m" rectb="0.03 m" />',
               '<mechanical type="Isotropic" youngsmodulus="210 GPa" poissonratio="0.3" />')
         for group,p,q,attrs in beams:
             m.elset(group,'Steel')
             m.elem(group,'line2',[m.node(*p),m.node(*q)],attrs)
+        if cards:
+            m.element_selection('Selected', [1])
+            for card in cards:
+                m.add(card)
         m.node_selection('Root',[1])
         m.add('<fixed selection="Root" />')
         m.node_selection('Tip',[2])
         m.add('<force selection="Tip"><x>0 N</x><y>1 N</y><z>0 N</z></force>')
         src=os.path.join(self.tmp.name,'orient.liml')
-        with open(src,'w') as f: f.write(m.xml())
+        with open(src,'w',encoding='utf-8') as f: f.write(m.xml())
         md=parser.extract_aster_data_from_liml(src)
         mail=os.path.join(self.tmp.name,'orient.mail')
         self.assertTrue(mesh.write_mesh(mail,md),self.logs)
@@ -81,6 +86,43 @@ class OrientationTests(unittest.TestCase):
         md,text=self.translate([('Beam',(0,0,0),(0,0,1),'')])
         self.assertEqual(list(md['beam_vect_y'].values()),[(0.,1.,0.)])
         self.assertIn("MODELISATION='POU_D_T_GD'",text)
+
+    def test_selection_card_matches_element_attributes(self):
+        beams=[('Beam',(0,0,0),(0,1,0),'')]
+        # Same format as the user's Mecway 34 file, including the degree sign.
+        card='<orientation selection="Selected"><ux>0</ux><uy>0</uy><uz>0</uz><vx>1</vx><vy>0</vy><vz>0</vz><angleu>90 \u00b0</angleu></orientation>'
+        md,text=self.translate(beams,[card])
+        self.assertFalse(md['skipped_loads'])
+        self.assertAlmostEqual(md['beam_orientations'][1]['angle'],math.pi/2)
+        actual=list(md['beam_vect_y'].values())[0]
+        for a,b in zip(actual,(0,0,-1)): self.assertAlmostEqual(a,b,places=12)
+        explicit,_=self.translate([('Beam',(0,0,0),(0,1,0),'orientationvx="1" angle="90 deg"')])
+        self.assertEqual(md['beam_vect_y'],explicit['beam_vect_y'])
+
+    def test_suppressed_card_preserves_default(self):
+        md,_=self.translate([('Beam',(0,0,0),(1,0,0),'')],
+            ['<orientation selection="Selected" suppressed="true"><vz>1</vz></orientation>'])
+        self.assertEqual(list(md['beam_vect_y'].values()),[(0.,1.,0.)])
+
+    def test_card_axes_are_used_for_offsets(self):
+        md,_=self.translate([('Beam',(0,0,0),(0,1,0),'')],[
+            '<orientation selection="Selected"><vx>1</vx><angleu>90 deg</angleu></orientation>',
+            '<offset selection="Selected"><v>0.1 m</v></offset>'])
+        for new,old in md['offset_node_aliases'].items():
+            p,q=md['mesh_nodes'][new],md['mesh_nodes'][old]
+            for a,b in zip([p[i]-q[i] for i in range(3)],(0,0,-.1)):
+                self.assertAlmostEqual(a,b,places=12)
+
+    def test_cards_reject_missing_selection_conflicts_and_bad_angles(self):
+        md,_=self.translate([('Beam',(0,0,0),(1,0,0),'')])
+        for cards in [
+            ['<orientation selection="missing"><vy>1</vy></orientation>'],
+            ['<orientation selection="Beam"><vy>1</vy><angleu>bad</angleu></orientation>'],
+            ['<orientation selection="Beam"><vy>1</vy></orientation>',
+             '<orientation selection="Beam"><vz>1</vz></orientation>']]:
+            test_md=copy.deepcopy(md)
+            test_md['beam_orientation_cards']=[ET.fromstring(c) for c in cards]
+            with self.assertRaises(ValueError): parser._apply_beam_orientation_cards(test_md)
 
 
 if __name__=='__main__': unittest.main()
