@@ -831,28 +831,32 @@ def write_mesh(mail_path, model_data, face_nodes=None):
     beam_groups = OrderedDict()
     beam_vect_y = OrderedDict()
     orient = model_data.get("beam_orientations", {})
-    if orient:
-        # Gesorteerd: een set gaf per Python-proces (hash-seed) een andere
-        # volgorde van de BOR-groepen in de .comm.
-        oriented_elsets = sorted(set(es for eid, shape, en, es in elements
-                                     if eid in orient))
-        for elset in oriented_elsets:
-            subgroups = OrderedDict()
-            for eid, shape, enodes, es in elements:
-                if es != elset or shape not in _BEAM_SHAPES:
-                    continue
-                cn = conn[eid][1]
-                v = _mecway_v_axis(nodes[cn[0]], nodes[cn[1]],
-                                   orient.get(eid))
-                key = tuple(round(c, 9) for c in v)
-                subgroups.setdefault(key, [v, []])[1].append(
-                    "M{0}".format(eid))
-            for v, members in subgroups.values():
-                sub = "BOR{0:05d}".format(len(beam_groups) + 1)
-                beam_groups[sub] = members
-                beam_vect_y[sub] = v
-            log("INFO: Balkorientatie '{0}': {1} richting(en) van V."
-                .format(elset, len(subgroups)))
+    # Gesorteerd: een set gaf per Python-proces (hash-seed) een andere
+    # volgorde van de BOR-groepen in de .comm.
+    # Explicitly use Mecway's local V for every beam, including components
+    # with no orientation attributes. Never emit beam VECT_Y for trusses,
+    # cables or discrete spring/damper elements which also use line meshes.
+    models = model_data.get("elset_modelisations", {})
+    oriented_elsets = sorted(set(es for eid, shape, en, es in elements
+                                 if shape in _BEAM_SHAPES and
+                                 models.get(es, "").startswith("POU_")))
+    for elset in oriented_elsets:
+        subgroups = OrderedDict()
+        for eid, shape, enodes, es in elements:
+            if es != elset or shape not in _BEAM_SHAPES:
+                continue
+            cn = conn[eid][1]
+            v = _mecway_v_axis(nodes[cn[0]], nodes[cn[1]],
+                               orient.get(eid))
+            key = tuple(round(c, 9) for c in v)
+            subgroups.setdefault(key, [v, []])[1].append(
+                "M{0}".format(eid))
+        for v, members in subgroups.values():
+            sub = "BOR{0:05d}".format(len(beam_groups) + 1)
+            beam_groups[sub] = members
+            beam_vect_y[sub] = v
+        log("INFO: Balkorientatie '{0}': {1} richting(en) van V."
+            .format(elset, len(subgroups)))
 
     # --------------------------------------------------
     # 4b. Discrete elementen op knopen (elastic support, knoopmassa's)

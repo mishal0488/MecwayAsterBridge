@@ -469,3 +469,29 @@ Mecway is a product of Mecway Ltd. Code_Aster is a trademark of EDF. This projec
 ### Beam offsets
 
 Linear static and ordinary modal analyses can include constant beam offsets with POU_D_E/POU_D_T. See [Beam offsets](Beam_offsets.md) for setup, results and current limits.
+
+### Beam orientations
+
+The bridge explicitly writes Mecway's local V-axis as Code_Aster `VECT_Y`
+for every beam component, including components with no orientation
+attributes. Explicit vectors and their additional section rotation are
+preserved. Trusses, cables and discrete line elements do not receive
+beam-orientation assignments. This applies to static, modal and the
+supported geometrically nonlinear beam formulation.
+
+The orientation regression benchmark uses a 3 m steel I-section cantilever
+with 100 mm depth, 50 mm flange width, 10 mm flange thickness and 8 mm web
+thickness. Global-X bending is isolated to track the same modal family.
+The unrotated and 90-degree-rotated frequencies are 3.654178 Hz and
+12.237220 Hz respectively, within 0.00005% of Euler-Bernoulli theory.
+Static displacements also match analytical section stiffness. Run:
+
+```
+python TestFiles/Verificatie/check_beam_orientations.py PATH_TO_RUN_ASTER NEW_OUTPUT_DIRECTORY
+```
+
+These benchmarks already passed before explicit default orientations were
+added: they confirm that explicit rotations and IY/IZ mapping work for the
+tested section. Always writing default orientations removes reliance on
+solver defaults, but does not by itself establish the cause of a particular
+model's stiffness or frequency discrepancy.
