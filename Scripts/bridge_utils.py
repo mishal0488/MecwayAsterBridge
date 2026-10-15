@@ -79,6 +79,7 @@ CONFIG_BRIDGE = {
     "elem_shell":      "DKT",
     # Balken (line2): "POU_D_E" (Euler, zoals Mecway) of "POU_D_T"
     # (Timoshenko; AY/AZ voor algemene doorsneden: bridge_from_liml.py).
+    # "POU_D_T_GD": elastic geometric nonlinearity (STAT_NON_LINE only).
     "elem_beam":       "POU_D_E",
 
     # LET OP: de waarden in dit CONFIG_BRIDGE-blok worden door het startscherm

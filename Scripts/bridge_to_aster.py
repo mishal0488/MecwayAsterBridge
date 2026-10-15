@@ -1052,7 +1052,8 @@ _SHELL_MODELISATIONS = ("DKT", "DST", "COQUE_3D")
 # Volume- en balkmodelisaties die voor de post-processing gelijk zijn aan
 # '3D' resp. 'POU_D_E'.
 _VOLUME_MODELISATIONS = ("3D", "3D_SI")
-_BEAM_MODELISATIONS = ("POU_D_E", "POU_D_T")
+_SMALL_BEAM_MODELISATIONS = ("POU_D_E", "POU_D_T")
+_BEAM_MODELISATIONS = _SMALL_BEAM_MODELISATIONS + ("POU_D_T_GD",)
 
 # Doorsneden waarvoor SIPM_ELNO zinvol is: posigr.F90 (v17.4.0) rekent
 # alleen voor TSEC=1 (RECTANGLE) en TSEC=2 (CERCLE); voor GENERALE (TSEC=0)
@@ -1094,7 +1095,12 @@ def _result_groups(model_data, verbose=False):
             g3d.append(group)
         elif mod in _SHELL_MODELISATIONS:
             gsh.append(group)
-        elif mod in _BEAM_MODELISATIONS:
+        elif mod == "POU_D_T_GD":
+            # The 17.4 element catalogue has SIEF_ELNO, not SIPM_ELNO.
+            if verbose:
+                log("INFO: POU_D_T_GD '{0}': section forces in SIEF_ELNO "
+                    "(MED); no Mecway beam stress recovery.".format(group))
+        elif mod in _SMALL_BEAM_MODELISATIONS:
             section = beam_secs.get(group, {}).get("aster_section")
             mat = model_data.get("elsets", {}).get(group)
             if (mat in model_data.get("materials", {}) and
@@ -1262,6 +1268,17 @@ def _build_calc_champ_block(model_data, with_plastic=False, reactions=True):
                 "CRITERES=('SIEQ_NOEU', ))".format(concept, groups),
                 "",
             ]
+
+    gd_beams = [g for g, m in model_data.get(
+        "elset_modelisations", {}).items() if m == "POU_D_T_GD"]
+    if gd_beams:
+        out += [
+            "# Large-rotation beams: local section forces and moments.",
+            "res = CALC_CHAMP(reuse=res, RESULTAT=res,",
+            "    GROUP_MA={0}, CONTRAINTE=('SIEF_ELNO', ))".format(
+                _fmt_groups(gd_beams)),
+            "",
+        ]
 
     if gbm:
         out += [
@@ -1739,6 +1756,8 @@ def _build_impr_resu_cham(model_data, with_plastic=False):
     """
     g3d, _gsh, _gbm = _result_groups(model_data)
     champs = ["DEPL", "REAC_NODA"]
+    if "POU_D_T_GD" in model_data.get("elset_modelisations", {}).values():
+        champs.append("SIEF_ELNO")
     if g3d:
         champs += ["SIGM_NOEU", "SIEQ_NOEU"]
         if with_plastic:
@@ -3898,11 +3917,12 @@ def _deformation_for(modelisation, relation, chosen, elset_name):
                              dezelfde resultaten als PETIT (QA-run, geen
                              effect van grote rotaties);
       COQUE_3D             : GROT_GDEP (alarm COMPOR1_47: rotaties < 2 pi);
-      balken POU_D_E/_T    : PETIT met een WARNING (grote rotaties vragen
-                             POU_D_T_GD met ELAS_POUTRE_GR; GROT_GDEP op
-                             POU_D_E convergeerde niet).
+      balken POU_D_E/_T    : PETIT met een WARNING.
+      balken POU_D_T_GD    : GROT_GDEP met ELAS_POUTRE_GR.
     PETIT en PETIT_REAC gaan ongewijzigd door.
     """
+    if modelisation == "POU_D_T_GD":
+        return "GROT_GDEP"
     if chosen not in _LARGE_DEFORMATIONS:
         return chosen
     plastic = relation.startswith("VMIS")
@@ -3936,7 +3956,7 @@ def _deformation_for(modelisation, relation, chosen, elset_name):
         return "GROT_GDEP"
     if modelisation.startswith("POU_D"):
         log("INFO: Elset '{0}' ({1}): grote verplaatsingen niet voor "
-            "balken in de bridge (vraagt POU_D_T_GD met ELAS_POUTRE_GR); "
+            "deze balkformulering (kies elem_beam=POU_D_T_GD); "
             "DEFORMATION='PETIT'.".format(elset_name, modelisation))
         return "PETIT"
     return "PETIT"
@@ -3981,7 +4001,7 @@ def _build_comportement_block(model_data, analysis):
     if deformation in _LARGE_DEFORMATIONS:
         small = sorted(e for e, m in model_data.get(
             "elset_modelisations", {}).items()
-            if m in ("DKT", "DST") or str(m).startswith("POU_D"))
+            if m in ("DKT", "DST") or m in _SMALL_BEAM_MODELISATIONS)
         if small:
             log(tr("WARNING: Grote verplaatsingen (DEFORMATION={0}) niet "
                    "voor balken en DKT/DST-schalen: {1} blijven geometrisch "
@@ -3989,7 +4009,8 @@ def _build_comportement_block(model_data, analysis):
                    "COQUE_3D (pagina Elementen).",
                    "WARNING: Large displacements (DEFORMATION={0}) not for "
                    "beams and DKT/DST shells: these elsets stay "
-                   "geometrically linear: {1}. For large rotations of "
+                    "geometrically linear: {1}. For nonlinear static beams "
+                    "choose elem_beam=POU_D_T_GD. For large rotations of "
                    "shells: elem_shell = "
                    "COQUE_3D (Elements page).").format(
                 deformation, ", ".join(small)))
@@ -4011,7 +4032,12 @@ def _build_comportement_block(model_data, analysis):
             relation = _relation_for(model_data, mat_name)
 
         mod = model_data.get("elset_modelisations", {}).get(elset_name, "")
-        if relation != "ELAS" and str(mod).startswith("POU_D"):
+        if mod == "POU_D_T_GD":
+            if relation != "ELAS":
+                raise ValueError("POU_D_T_GD requires an elastic material: "
+                                 + elset_name)
+            relation = "ELAS_POUTRE_GR"
+        elif relation != "ELAS" and str(mod).startswith("POU_D"):
             # POU_D_E/POU_D_T met VMIS_* gaf <EXCEPTION> POUTRE0_61 "La loi
             # de comportement VMIS_ISOT_LINE n'est pas disponible pour les
             # poutres classiques. Utilisez les poutres multifibres." en
@@ -4096,6 +4122,13 @@ def _warn_large_rotations(model_data, analysis):
             elif isinstance(v, float):
                 largest = max(largest, abs(v))
     if largest > _LARGE_ROTATION:
+        if "POU_D_T_GD" in model_data.get(
+                "elset_modelisations", {}).values():
+            log("WARNING: POU_D_T_GD supports large beam rotations. "
+                "Imposed DR* rotations and rigid/interpolation couplings "
+                "still need a compatible finite-rotation loading path; "
+                "check connection and boundary-condition kinematics.")
+            return
         deformation = analysis.get("deformation", "PETIT")
         large = deformation in _LARGE_DEFORMATIONS
         log(tr("WARNING: Opgelegde rotatie tot {0} rad ({1} graden) "
@@ -5004,7 +5037,7 @@ def _imperfection_plan(model_data, analysis):
                "(default GROT_GDEP).").format(analysis.get("deformation")))
     small = sorted(e for e, m in model_data.get(
         "elset_modelisations", {}).items()
-        if m in ("DKT", "DST") or str(m).startswith("POU_D"))
+        if m in ("DKT", "DST") or m in _SMALL_BEAM_MODELISATIONS)
     if small:
         log(tr("WARNING: Imperfectie: balken en DKT/DST-schalen ({0}) "
                "rekenen geometrisch lineair; daar versterkt de imperfectie "
@@ -6378,6 +6411,8 @@ def generate_AsterSolver_files(work_dir, model_data, msh_path, resu_name):
         return None
 
     if mechanical:
+        if not _check_gd_beams(model_data, analysis):
+            return None
         if not _check_materials(model_data, analysis):
             return None
         # Een verdeelde last per balk (BRLP-groepen vóór DEFI_GROUP)
@@ -6386,6 +6421,57 @@ def generate_AsterSolver_files(work_dir, model_data, msh_path, resu_name):
     # Gap-groepen (DEFI_GROUP, DEFI_MATERIAU) vóór de blokken
     _prepare_gaps(model_data)
     return builder(work_dir, model_data, msh_path, resu_name, analysis)
+
+
+def _check_gd_beams(model_data, analysis):
+    """Validate the initial static, elastic large-rotation beam route.
+
+    Code-Aster 17.4 MECA_POU_D_T_GD has RIGI_MECA_TANG, but no
+    RIGI_MECA/RIGI_GEOM, SIPM_ELNO or CHAR_MECA_ROTA_R. Do not silently
+    substitute a small-displacement beam in an incompatible analysis.
+    """
+    groups = [g for g, m in model_data.get(
+        "elset_modelisations", {}).items() if m == "POU_D_T_GD"]
+    if not groups:
+        return True
+    errors = []
+    if analysis.get("solver_command") != "STAT_NON_LINE":
+        errors.append("select nonlinear static (STAT_NON_LINE); the initial "
+                      "POU_D_T_GD integration supports static analysis only")
+    if analysis.get("deformation", "PETIT") != "GROT_GDEP":
+        errors.append("set DEFORMATION to GROT_GDEP for POU_D_T_GD")
+    if analysis.get("imperfection_amplitude", 0.0):
+        errors.append("automatic buckling-mode imperfections require "
+                      "RIGI_MECA/RIGI_GEOM, unavailable for POU_D_T_GD; "
+                      "set imperfection_amplitude=0 and model the initial "
+                      "imperfection directly in the mesh")
+    for g in groups:
+        mat = model_data.get("elsets", {}).get(g)
+        if _relation_for(model_data, mat) != "ELAS":
+            errors.append("beam '{0}' requires an elastic material; "
+                          "plasticity is not supported".format(g))
+        if g not in model_data.get("beam_sections", {}):
+            errors.append("beam '{0}' has no cross-section".format(g))
+    renames = model_data.get("group_renames", {})
+    if any(e[1] != "line2" and renames.get(e[3], e[3]) in groups
+           for e in model_data.get("mesh_elements", [])):
+        errors.append("POU_D_T_GD requires line2 (SEG2) beam elements")
+    if any(b.get("aster_keyword") == "ROTATION"
+           for b in model_data.get("bcs", [])):
+        errors.append("centrifugal loading (ROTATION) is not supported "
+                      "with POU_D_T_GD")
+    for err in errors:
+        log("ERROR: POU_D_T_GD: " + err + ".")
+    if errors:
+        return False
+    if model_data.get("couplings"):
+        log("WARNING: POU_D_T_GD uses large rotations, but bridge-generated "
+            "rigid/interpolation couplings retain their existing linear "
+            "constraint equations. Check connection kinematics.")
+    log("INFO: POU_D_T_GD: elastic geometric nonlinearity; displacements "
+        "and reactions are exported to Mecway. Enable MED export for "
+        "SIEF_ELNO section forces/moments; beam stresses are not exported.")
+    return True
 
 
 def _check_materials(model_data, analysis):

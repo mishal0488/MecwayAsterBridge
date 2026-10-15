@@ -97,7 +97,7 @@ GENERAL_SPECS = [
                     "Linear shells (tri3/quad4)"), "choice",
      ("DKT", "DST", "COQUE_3D")),
     ("elem_beam", ("Balken (line2)", "Beams (line2)"), "choice",
-     ("POU_D_E", "POU_D_T")),
+     ("POU_D_E", "POU_D_T", "POU_D_T_GD")),
 ]
 
 # Algemene sleutels die op de pagina "Elementen" staan.
@@ -127,7 +127,9 @@ _ELEMENT_HELP = (
     u"  \u2022 POU_D_E: Euler-Bernoulli, zoals Mecway.\n"
     u"  \u2022 POU_D_T: Timoshenko (met afschuifvervorming); I/T/C/L-profielen "
     u"met benaderde afschuifco\u00ebffici\u00ebnten,\n"
-    u"     algemene doorsnede AY = AZ = 1.",
+    u"     algemene doorsnede AY = AZ = 1.\n"
+    u"  POU_D_T_GD: elastische grote verplaatsingen/rotaties; alleen "
+    u"niet-lineair statisch met GROT_GDEP. Zie docs/en/Nonlinear_beams.md.",
     u"Hex8 (solid elements)\n"
     u"  \u2022 3D: fully integrated; stiffer than Mecway's hex8 (incompatible "
     u"modes), see KNOWN_BUGS 1.\n"
@@ -151,7 +153,9 @@ _ELEMENT_HELP = (
     u"  \u2022 POU_D_E: Euler-Bernoulli, like Mecway.\n"
     u"  \u2022 POU_D_T: Timoshenko (with shear deformation); I/T/C/L profiles "
     u"with approximated shear coefficients,\n"
-    u"     general section AY = AZ = 1.")
+    u"     general section AY = AZ = 1.\n"
+    u"  POU_D_T_GD: elastic large displacements/rotations; nonlinear "
+    u"static with GROT_GDEP only. See docs/en/Nonlinear_beams.md.")
 
 # Leesbare titels van de analyses (pagina's en meldingen), in de volgorde
 # van de navigatie. Analyses die hier niet staan krijgen hun sleutel als

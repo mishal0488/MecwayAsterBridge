@@ -1320,7 +1320,8 @@ def _line_pressure(model_data, bc, faces):
     kinds = faces.get("kinds", set()) if faces else set()
     local = bc["params"].get("_local")
     elem_mods = _element_kinds(model_data, sel)
-    if not kinds and elem_mods and elem_mods <= set(["POU_D_E", "POU_D_T", "BARRE"]):
+    if not kinds and elem_mods and elem_mods <= set([
+            "POU_D_E", "POU_D_T", "POU_D_T_GD", "BARRE"]):
         bc["aster_keyword"] = "FORCE_POUTRE"
         return
     if kinds == set(["shelledge"]) and not local:

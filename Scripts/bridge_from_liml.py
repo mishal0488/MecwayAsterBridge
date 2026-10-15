@@ -64,7 +64,7 @@ _DIM_3D_SHAPES = frozenset({
 # DIS_T (veer) en BARRE hebben uitsluitend translatie-DOFs en staan hier
 # NIET in.
 _ROT_DOF_MODELISATIONS = frozenset({
-    "POU_D_T", "POU_D_E",
+    "POU_D_T", "POU_D_E", "POU_D_T_GD",
     "COQUE_3D", "DKT", "DST", "Q4G",
     "DIS_TR",
 })
@@ -74,7 +74,7 @@ _ROT_DOF_MODELISATIONS = frozenset({
 _ELEM_CHOICES = {
     "elem_hex8":  ("3D", "3D_SI", "LINE_QUAD"),
     "elem_shell": ("DKT", "DST", "COQUE_3D"),
-    "elem_beam":  ("POU_D_E", "POU_D_T"),
+    "elem_beam":  ("POU_D_E", "POU_D_T", "POU_D_T_GD"),
 }
 
 
@@ -2329,7 +2329,7 @@ def extract_aster_data_from_liml(file_path):
             if dim == "1D":
                 if "aster_section" in geom:
                     if model_data["elset_modelisations"].get(
-                            elset_name) == "POU_D_T":
+                            elset_name) in ("POU_D_T", "POU_D_T_GD"):
                         geom = _add_shear_coefs(elset_name, geom)
                     geom = dict(geom, area=_section_area(geom))
                     model_data["beam_sections"][elset_name] = geom
