@@ -372,6 +372,7 @@ class _Fields(object):
         self.data = {}
         self.layouts = {}     # (resultaat, veld) -> _cell_layout()
         self.scales = {}      # {index: factor} voor DEPL (knikvormen)
+        self.offsets = None   # (physical rows, reference rows, eccentricities)
 
     def set_index(self, index):
         self.index = index
@@ -392,6 +393,10 @@ class _Fields(object):
                 else:
                     sf = fld.toSimpleFieldOnNodes()
                     vals, mask = sf.getValues()
+                    if field == "REAC_NODA" and self.offsets is not None:
+                        vals, mask = _offset_reactions(vals, mask,
+                                                      list(sf.getComponents()),
+                                                      self.offsets)
                     if field == "REAC_NODA" and self.lump is not None:
                         vals, mask = _lump_nodes(vals, mask, self.lump)
                     if self.rows is not None:
@@ -479,6 +484,32 @@ def _reaction_lumping(mesh, conn, n):
         return None
     return (np.array(src, dtype=int), np.array(dst, dtype=int),
             np.array(wgt, dtype=float))
+
+
+def _offset_reactions(vals, mask, components, offsets):
+    """Transfer physical-node forces and moments to the reference nodes.
+
+    REAC_NODA excludes the MPC forces: summing both sides cancels the
+    internal connection and leaves the external support reaction.
+    """
+    src, dst, r = offsets
+    out = np.where(mask, vals, 0.0).copy()
+    valid = mask.copy()
+    forces = np.zeros((len(src), 3))
+    for i, dof in enumerate(('DX', 'DY', 'DZ')):
+        if dof in components:
+            forces[:, i] = out[src, components.index(dof)]
+    moment = np.cross(r, forces)
+    for i, dof in enumerate(('DX', 'DY', 'DZ', 'DRX', 'DRY', 'DRZ')):
+        if dof not in components:
+            continue
+        col = components.index(dof)
+        values = out[src, col].copy()
+        if i >= 3:
+            values += moment[:, i - 3]
+        np.add.at(out[:, col], dst, values)
+        np.logical_or.at(valid[:, col], dst, mask[src, col])
+    return out, valid
 
 
 def _lump_nodes(vals, mask, lump):
@@ -1322,7 +1353,7 @@ def _times(res, indexes):
 
 def export_results(res, out_path, liml_path, fields=None, extra_results=None,
                    precision="single", static=None, rigi_geo=None,
-                   mass=None, node_fields=None, cyclic=None):
+                   mass=None, node_fields=None, cyclic=None, offset_nodes=None):
     """
     Schrijf alle gearchiveerde tijdstappen van res als Mecway-<results>-
     fragment (bytes, CRLF, ingesprongen voor plaatsing in <solution>).
@@ -1352,6 +1383,10 @@ def export_results(res, out_path, liml_path, fields=None, extra_results=None,
     node_fields   : {Mecway-naam: (knoopnummers, waarden)} die in elke stap
                     gelijk zijn (vermoeiing: damage, life; aster_fatigue),
                     of None. Knoopnummers vanaf 1.
+    offset_nodes  : {physical node id: original reference node id}, 1-based.
+                    Element results map to the original beam; reactions are
+                    transferred with their moment arms. Displacements remain
+                    at the original reference nodes.
     cyclic        : {"axis": 0/1/2 (X/Y/Z), "segments": N} bij cyclische
                     symmetrie (bridge_cyclic), of None. Heeft het mesh van
                     res meer knopen dan de .liml (het skelet van het hele
@@ -1368,7 +1403,7 @@ def export_results(res, out_path, liml_path, fields=None, extra_results=None,
     try:
         return _export(res, out_path, liml_path, fields, extra_results,
                        precision, static, t0, rigi_geo, mass, node_fields,
-                       cyclic)
+                       cyclic, offset_nodes)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1379,7 +1414,7 @@ def export_results(res, out_path, liml_path, fields=None, extra_results=None,
 
 def _export(res, out_path, liml_path, fields, extra_results, precision,
             static, t0, rigi_geo=None, mass=None, node_fields=None,
-            cyclic=None):
+            cyclic=None, offset_nodes=None):
     """Werk van export_results (zonder de foutafvang)."""
     model = read_liml_model(liml_path)
     n = model["coords"].shape[0]
@@ -1413,10 +1448,20 @@ def _export(res, out_path, liml_path, fields, extra_results, precision,
         indexes = indexes[:1]
     groups = set(fields) if fields is not None else None
     conn = mesh.getConnectivity()
+    if offset_nodes:
+        # Match displaced physical beam ends to their original Mecway nodes.
+        # Nodal results remain on the unmodified reference nodes.
+        conn = [[offset_nodes.get(int(n) + 1, int(n) + 1) - 1 for n in cell]
+                for cell in conn]
     lump = None
-    if rows is None and (groups is None or "reactions" in groups):
+    if not offset_nodes and rows is None and (groups is None or "reactions" in groups):
         lump = _reaction_lumping(mesh, conn, n)
     data = _Fields(results, n, lump, rows)
+    if offset_nodes:
+        src = np.array(sorted(offset_nodes), dtype=int) - 1
+        dst = np.array([offset_nodes[int(i)+1] for i in src], dtype=int) - 1
+        coordinates = xyz.reshape(-1, 3)
+        data.offsets = (src, dst, coordinates[src] - coordinates[dst])
     mode_values = _mode_values(res, modes) if modes else None
     if modes == "buckling" and rigi_geo is not None:
         data.scales = _stiffness_scales(res, rigi_geo, mode_values)
@@ -1509,7 +1554,10 @@ def _write_fragment(f, variables, data, indexes, times, precision, model,
     values_tag = "valuessingle" if precision == "single" else "valuesdouble"
     indent = ("      " if (times is None and modes is None)
               else "        ")
-    f.write('    <results precision="{0}">\r\n'.format(precision)
+    offset_attr = ('' if data.offsets is None else
+                   ' bridge_offset_nodes="{0}"'.format(
+                       ' '.join(str(int(n)+1) for n in data.offsets[0])))
+    f.write('    <results precision="{0}"{1}>\r\n'.format(precision, offset_attr)
             .encode("ascii"))
     for var in variables:
         f.write(_ids_block(var, "      "))

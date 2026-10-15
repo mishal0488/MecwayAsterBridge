@@ -465,3 +465,7 @@ with a run (see [`Verification.md`](Verification.md)).
 ## Trademarks
 
 Mecway is a product of Mecway Ltd. Code_Aster is a trademark of EDF. This project is not affiliated with or endorsed by Mecway Ltd or EDF.
+
+### Beam offsets
+
+Linear static and ordinary modal analyses can include constant beam offsets with POU_D_E/POU_D_T. See [Beam offsets](Beam_offsets.md) for setup, results and current limits.

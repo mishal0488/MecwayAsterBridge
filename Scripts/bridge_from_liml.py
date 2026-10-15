@@ -1890,6 +1890,12 @@ def extract_aster_data_from_liml(file_path):
                         "niet mee in deze analyse.".format(
                             tag, item.get("selection", "")))
                 continue
+            elif tag == "offset":
+                if item.get('suppressed', '') != 'true':
+                    from bridge_offsets import read_vector
+                    model_data.setdefault('beam_offsets', []).append({
+                        'selection': item.get('selection', ''),
+                        'vector': read_vector(item)})
             elif tag == "nodesurfacecoupling":
                 if item.get("suppressed", "") == "true":
                     log("INFO: nodesurfacecoupling overgeslagen (suppressed).")

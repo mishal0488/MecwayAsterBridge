@@ -513,6 +513,9 @@ def write_mesh(mail_path, model_data, face_nodes=None):
     bool  True bij succes; False bij een fout (melding in bridge_log.txt).
     """
     log("--- Mesh schrijven (ASTER-formaat): {0} ---".format(mail_path))
+    import bridge_offsets
+    if not bridge_offsets.prepare(model_data, _mecway_v_axis):
+        return False
     nodes = model_data.get("mesh_nodes", {})
     elements = model_data.get("mesh_elements", [])
     if not nodes or not elements:
@@ -774,6 +777,7 @@ def write_mesh(mail_path, model_data, face_nodes=None):
         if c["type"] == "rbe3" and c.get("surface_rot", False):
             rot_masters.add(c["master_group"])
     poi1_nodes = OrderedDict([(POI1_GROUP_T, []), (POI1_GROUP_R, [])])
+    poi1_nodes[POI1_GROUP_R].extend(model_data.get('offset_reference_nodes', []))
     for gname, ids in model_data.get("node_groups", {}).items():
         for nid_str in ids:
             nid = int(nid_str[1:]) if nid_str.startswith("N") else int(nid_str)

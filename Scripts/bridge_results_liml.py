@@ -50,6 +50,7 @@ import base64
 import io
 import os
 import re
+import xml.etree.ElementTree as ET
 
 from bridge_utils import tr
 
@@ -759,6 +760,19 @@ def check_results_fit(model_liml, fragment_path, mail_path=None):
             "Mesh file of this run not found; only node and element "
             "numbers checked, not the coordinates.")
     coords = _mail_coords(mail_path)
+    # Physical offset-beam nodes are internal to Code_Aster; results refer
+    # to the original Mecway nodes. Only discard explicitly recorded extras.
+    try:
+        with open(fragment_path, 'rb') as fragment:
+            for event, elem in ET.iterparse(fragment, events=('start',)):
+                if elem.tag == 'results':
+                    extra = set(int(n) for n in elem.get('bridge_offset_nodes', '').split())
+                    if extra.intersection(nodes) or not extra.issubset(coords):
+                        return False, 'Invalid beam-offset node mapping in results.'
+                    coords = dict((n, xyz) for n, xyz in coords.items() if n not in extra)
+                    break
+    except (ValueError, ET.ParseError):
+        return False, 'Invalid beam-offset node mapping in results.'
     if set(coords) != set(nodes):
         return False, tr(
             "Het mesh van de run ({0} knopen) verschilt van het model "

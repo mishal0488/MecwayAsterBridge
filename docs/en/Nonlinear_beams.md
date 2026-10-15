@@ -120,3 +120,5 @@ References checked against Code_Aster 17.4:
 - [Large-rotation beam element catalogue](https://gitlab.com/codeaster/src/-/blob/17.4.0/catalo/cataelem/Elements/meca_pou_d_t_gd.py)
 - [SSNL103A large-rotation beam test](https://gitlab.com/codeaster/src/-/blob/17.4.0/astest/ssnl103a.comm)
 - [Nonlinear behaviour documentation](https://codeaster.gitlab.io/doc/docaster/manuals/man_u/u4/u4.51.11/Mot_cl__COMPORTEMENT.html)
+
+For linear static and ordinary modal beam offsets, see [Beam offsets](Beam_offsets.md). Large-rotation offsets are not supported.

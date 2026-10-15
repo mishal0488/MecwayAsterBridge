@@ -1693,7 +1693,9 @@ def _results_route(work_dir, model_data, postreleve_block, impr_table_block,
         liml=_py_str(model_data.get("liml_path", "")), precision=precision,
         static="" if static is None else ", static={0}".format(bool(static)),
         fields="" if fields is None else ", fields={0!r}".format(
-            [str(f) for f in fields]), extra=extra)
+            [str(f) for f in fields]), extra=extra +
+            (", offset_nodes={0!r}".format(model_data['offset_node_aliases'])
+             if model_data.get('offset_node_aliases') else ""))
     return "#-- tabellen niet nodig (result_route='liml') --" + chr(10), block
 
 
@@ -3106,7 +3108,8 @@ def _render_mpcs(model_data):
       - verlijmd contact (bridge_mesh._bonded) -> LIAISON_MAIL (U4.44.01).
     """
     out = OrderedDict()
-    for ce in model_data.get("constraint_equations", []):
+    for ce in (model_data.get("constraint_equations", []) +
+               model_data.get("offset_equations", [])):
         terms = ce["terms"]
         out.setdefault("LIAISON_DDL", []).append(
             "_F(NOEUD={0}, DDL={1}, COEF_MULT={2}, COEF_IMPO={3!r})".format(
@@ -5945,7 +5948,9 @@ def _modes_export_block(work_dir, model_data, stiffness_norm=False,
         mass=", mass=masse" if mass else "", extra=extra.replace(
             "@N", chr(10)), fields=[str(f) for f in fields],
         norm=", rigi_geo=rigi_geo" if stiffness_norm else "",
-        cmass=", mass=masse" if complex_modes else "")
+        cmass=(", mass=masse" if complex_modes else "") +
+              (", offset_nodes={0!r}".format(model_data['offset_node_aliases'])
+               if model_data.get('offset_node_aliases') else ""))
 
 
 # Velden die bij een modale analyse per mode naar Mecway kunnen (instelling
