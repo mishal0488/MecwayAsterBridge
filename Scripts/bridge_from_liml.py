@@ -1929,6 +1929,14 @@ def extract_aster_data_from_liml(file_path):
                         "niet mee in deze analyse.".format(
                             tag, item.get("selection", "")))
                 continue
+            elif tag == "flexiblejoint":
+                if item.get('suppressed', '') != 'true':
+                    if any(c.tag not in ('rotu', 'rotv', 'rotw') or c.attrib or
+                           (c.text or '').strip() for c in item):
+                        raise ValueError('Only free rotational beam-end releases rotu/rotv/rotw are supported.')
+                    model_data.setdefault('beam_releases', []).append({
+                        'selection': item.get('selection', ''),
+                        'axes': [c.tag[-1] for c in item]})
             elif tag == "orientation":
                 if item.get('suppressed', '') != 'true':
                     model_data.setdefault('beam_orientation_cards', []).append(item)

@@ -3109,7 +3109,8 @@ def _render_mpcs(model_data):
     """
     out = OrderedDict()
     for ce in (model_data.get("constraint_equations", []) +
-               model_data.get("offset_equations", [])):
+               model_data.get("offset_equations", []) +
+               model_data.get("release_equations", [])):
         terms = ce["terms"]
         out.setdefault("LIAISON_DDL", []).append(
             "_F(NOEUD={0}, DDL={1}, COEF_MULT={2}, COEF_IMPO={3!r})".format(

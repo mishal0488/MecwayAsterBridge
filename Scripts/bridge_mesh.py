@@ -516,6 +516,9 @@ def write_mesh(mail_path, model_data, face_nodes=None):
     import bridge_offsets
     if not bridge_offsets.prepare(model_data, _mecway_v_axis):
         return False
+    import bridge_releases
+    if not bridge_releases.prepare(model_data, _mecway_v_axis):
+        return False
     nodes = model_data.get("mesh_nodes", {})
     elements = model_data.get("mesh_elements", [])
     if not nodes or not elements:

@@ -502,7 +502,7 @@ per-element vectors and rotations. Missing cards can leave a model with
 valid-looking default VECT_Y entries but the wrong physical section axes.
 Check the log for `Beam orientation card ... applied to ... elements`.
 
-Flexible beam joints (`flexiblejoint`) are still unsupported and reported
-as omitted in the log. Such a model is solved with rigid beam connections;
-correct orientation handling alone does not make it equivalent to the
-original released-joint model.
+Flexible beam joints (`flexiblejoint`) are supported for linear static and
+modal analyses at connected beam junctions. See [Beam end releases](Beam_releases.md)
+for supported combinations and validation. Older bridge versions omitted
+these joints, making the connections rigid and changing the modal spectrum.
