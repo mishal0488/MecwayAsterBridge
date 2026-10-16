@@ -319,10 +319,7 @@ def _run(settings):
         # bridge_mesh.py.
         mesh_file = os.path.join(work_dir_path(), run_name(".mail"))
         if not write_mesh(mesh_file, model_data, face_nodes=_face_nodes):
-            _notify(tr("Schrijven van het mesh mislukt. Controleer "
-                          "{0}.",
-                          "Writing the mesh failed. Check {0}.").format(
-                              log_file_name()))
+            _notify_mesh_failure(model_data)
             return False
 
         resu_name = run_name(".resu")
@@ -1063,6 +1060,21 @@ def _notify(text):
     _NOTES["list"].append(u"{0}".format(text))
     if _NOTES["popup"]:
         mw.message(text)
+
+
+def _notify_mesh_failure(model_data):
+    reason = model_data.get('preparation_error')
+    if reason:
+        message = tr("Code-Aster is niet gestart:\n{0}",
+                     "Code_Aster was not started:\n{0}").format(reason)
+        _notify(message)
+        if not _NOTES['popup']:
+            mw.message(message)
+    else:
+        _notify(tr("Schrijven van het mesh mislukt. Controleer "
+                  "{0}.",
+                  "Writing the mesh failed. Check {0}.").format(
+                      log_file_name()))
 
 
 def _status_text(ok, what):

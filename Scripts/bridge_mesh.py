@@ -513,11 +513,11 @@ def write_mesh(mail_path, model_data, face_nodes=None):
     bool  True bij succes; False bij een fout (melding in bridge_log.txt).
     """
     log("--- Mesh schrijven (ASTER-formaat): {0} ---".format(mail_path))
-    import bridge_offsets
-    if not bridge_offsets.prepare(model_data, _mecway_v_axis):
-        return False
     import bridge_releases
     if not bridge_releases.prepare(model_data, _mecway_v_axis):
+        return False
+    import bridge_offsets
+    if not bridge_offsets.prepare(model_data, _mecway_v_axis):
         return False
     nodes = model_data.get("mesh_nodes", {})
     elements = model_data.get("mesh_elements", [])

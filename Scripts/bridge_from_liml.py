@@ -1945,6 +1945,7 @@ def extract_aster_data_from_liml(file_path):
                     from bridge_offsets import read_vector
                     model_data.setdefault('beam_offsets', []).append({
                         'selection': item.get('selection', ''),
+                        'frame': 'global' if any(item.find(c) is not None for c in ('x', 'y', 'z')) else 'local',
                         'vector': read_vector(item)})
             elif tag == "nodesurfacecoupling":
                 if item.get("suppressed", "") == "true":

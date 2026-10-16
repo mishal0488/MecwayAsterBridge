@@ -77,17 +77,31 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(md,before)
 
     def test_invalid_faces_and_unsupported_cases_stop_without_mesh_changes(self):
-        cases=[('face',None),('isolated',None),('offset',None),('analysis','nonlin_static_3d')]
+        cases=[('face',None),('isolated',None),('analysis','nonlin_static_3d')]
         for case,analysis in cases:
             u.CONFIG_BRIDGE['active_analysis']='lin_static_3d'
             md=self.parse()
             if case=='face': md['face_selection_faces']['Release']=[(11,1)]
             if case=='isolated': md['face_selection_faces']['Release']=[(1,2)]
-            if case=='offset': md['beam_offsets']=[{'selection':'Beam','vector':(0,.1,0)}]
             if analysis: u.CONFIG_BRIDGE['active_analysis']=analysis
             before=copy.deepcopy(md['mesh_nodes']),copy.deepcopy(md['mesh_elements'])
             self.assertFalse(releases.prepare(md,mesh._mecway_v_axis),case)
             self.assertEqual((md['mesh_nodes'],md['mesh_elements']),before)
+
+    def test_offset_release_chain_maps_back_to_original_junction(self):
+        md=self.parse()
+        md['beam_offsets']=[{'selection':'Beam','vector':(0,0,.18),'frame':'global'}]
+        path=os.path.join(self.tmp.name,'combined.mail')
+        self.assertTrue(mesh.write_mesh(path,md),self.logs)
+        self.assertEqual(len(md['offset_node_aliases']),41)
+        self.assertEqual(md['offset_node_aliases'][22],11)
+        physical=dict((e[0],e[2]) for e in md['mesh_elements'])[11][0]
+        self.assertEqual(md['offset_node_aliases'][physical],11)
+        self.assertIn(22,md['offset_reference_nodes'])
+        self.assertEqual(md['mesh_nodes'][physical],(1.,0.,.18))
+        self.assertEqual(len(md['release_equations']),4)
+        self.assertEqual(len(md['offset_equations']),240)
+        self.assertTrue(writer.generate_AsterSolver_files(self.tmp.name,md,path,'combined'),self.logs)
 
     def test_unsupported_joint_parameters_not_silently_ignored(self):
         text=model().xml().replace('<rotv />','<rotv>123</rotv>')

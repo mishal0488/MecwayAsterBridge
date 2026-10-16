@@ -15,6 +15,7 @@ def prepare(md, axis_function):
         md['releases_prepared'] = True
         return True
     except ValueError as err:
+        md['preparation_error'] = 'Beam end releases: ' + str(err)
         log('ERROR: Beam end releases: ' + str(err))
         return False
 
@@ -28,12 +29,12 @@ def _prepare(md, axis_function):
         raise ValueError('supported in linear static and modal 3D only.')
     if CONFIG_BRIDGE.get('result_route', 'liml') != 'liml':
         raise ValueError('select the LIML results route.')
-    if (md.get('beam_offsets') or md.get('shell_upgrades') or
+    if (md.get('shell_upgrades') or
             CONFIG_BRIDGE.get('elem_hex8') == 'LINE_QUAD' or
             md.get('contacts') or md.get('bonded') or md.get('couplings') or
             md.get('cyclic') or analysis.get('adapt_refine') or
             analysis.get('modal_complex') or bridge_xfem.is_requested(md)):
-        raise ValueError('offsets, mesh upgrades, contact/couplings, cyclic, complex modes, adaptive refinement and XFEM are not supported together with releases.')
+        raise ValueError('mesh upgrades, contact/couplings, cyclic, complex modes, adaptive refinement and XFEM are not supported together with releases.')
     elements = dict((e[0], e) for e in md['mesh_elements'])
     selected = {}
     for item in md['beam_releases']:

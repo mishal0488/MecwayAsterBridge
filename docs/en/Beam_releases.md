@@ -1,7 +1,7 @@
 # Flexible joints / beam-end releases
 
 Mecway's **Flexible joint on beam** is translated for linear static and
-real modal 3D analyses, including modal prestress. Use two-node `POU_D_E`
+real modal 3D analyses, including modal prestress when no offsets are present. Use two-node `POU_D_E`
 or `POU_D_T` beams and the LIML results route. Apply the joint to beam end
 faces, as in Mecway; no additional bridge setting is needed.
 
@@ -20,6 +20,10 @@ forces and moments. Nodal results refer to the original junction nodes;
 reactions include the contributions from the connected beam ends. The
 log reports `Beam end releases: ... independent beam ends`.
 
+Offsets and releases can be combined for linear static and ordinary real
+modal analyses. Turn modal prestress off when offsets are present. The
+release acts at the reference junction, before the rigid offset arm.
+
 ## Current limits
 
 - Each released junction must also connect to at least one unreleased beam
@@ -31,7 +35,7 @@ log reports `Beam end releases: ... independent beam ends`.
 - Only free rotational releases are supported, not finite joint stiffness
   or translational releases.
 - Nonlinear, transient, buckling and complex modal releases are not yet
-  supported. Neither are combinations with offsets, mesh-order upgrades,
+  supported. Neither are combinations with mesh-order upgrades,
   contact/bonded/node-surface couplings, cyclic symmetry, adaptive
   refinement or XFEM. These combinations stop before solving.
 

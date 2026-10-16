@@ -77,6 +77,21 @@ class OffsetTests(unittest.TestCase):
         aliases = list(md['offset_node_aliases'].values())
         self.assertEqual(aliases.count(2),2)
 
+    def test_global_offset_is_not_rotated_with_beam(self):
+        path=os.path.join(self.tmp.name,'global.liml')
+        text=model('static',.18).xml().replace('<w>','<z>').replace('</w>','</z>').replace('<u>','<x>').replace('</u>','</x>').replace('<v>','<y>').replace('</v>','</y>')
+        with open(path,'w') as f: f.write(text)
+        md=parser.extract_aster_data_from_liml(path)
+        self.assertEqual(md['beam_offsets'][0]['frame'],'global')
+        md['mesh_nodes']={n:(0.,p[0],0.) for n,p in md['mesh_nodes'].items()}
+        md['beam_orientations']={e[0]:{'vec':(0.,0.,1.),'angle':0.} for e in md['mesh_elements']}
+        before=dict(md['mesh_nodes'])
+        self.assertTrue(offsets.prepare(md,mesh._mecway_v_axis))
+        for new,old in md['offset_node_aliases'].items():
+            np.testing.assert_allclose(np.array(md['mesh_nodes'][new])-before[old],(0,0,.18))
+        self.assertEqual(offsets.read_vector(ET.fromstring('<offset><z>180 mm</z></offset>')),(0.,0.,.18))
+        self.assertFalse(all(np.isfinite(offsets.read_vector(ET.fromstring('<offset><z>1 m</z><w>2 m</w></offset>')))))
+
     def test_zero_offsets_preserve_mesh(self):
         md = self.parse(0)
         before = copy.deepcopy(md)
@@ -94,7 +109,9 @@ class OffsetTests(unittest.TestCase):
                 self.assertFalse(offsets.prepare(md,mesh._mecway_v_axis))
         u.CONFIG_BRIDGE['active_analysis'] = 'modal_3d'
         u.CONFIG_BRIDGE['analyses']['modal_3d']['modal_prestress'] = True
-        self.assertFalse(offsets.prepare(self.parse(),mesh._mecway_v_axis))
+        md=self.parse()
+        self.assertFalse(offsets.prepare(md,mesh._mecway_v_axis))
+        self.assertIn('disable modal prestress',md['preparation_error'])
         u.CONFIG_BRIDGE['active_analysis'] = 'lin_static_3d'
         md = self.parse()
         md['beam_offsets'] *= 2

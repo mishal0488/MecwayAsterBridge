@@ -16,7 +16,9 @@ for `Beam offsets:` to confirm that offsets were applied.
 ## Meaning and implementation
 
 The offset components U, V and W are constant lengths along each beam's
-local axes, including its orientation. They move the physical beam
+local axes, including its orientation. Global X, Y and Z offsets are also
+read directly in the global coordinate system. Do not mix the two systems
+in one offset definition. They move the physical beam
 centreline away from the original reference nodes. Original nodes still
 carry nodal loads, supports and connections. The bridge creates internal
 physical nodes and connects them by linear rigid-arm equations:
@@ -39,6 +41,14 @@ the moment-arm contribution. Internal generated nodes are excluded from
 Mecway results. The solver mesh can be inspected separately to see the
 physical centreline. Mecway's own modal drawing rules still apply; this
 change does not implement a new offset renderer in Mecway.
+
+Rotational beam-end releases can be combined with offsets. The release is
+applied at the original reference junction; the rigid arm connects the
+released side to the offset physical beam. Both intermediate and physical
+nodes are mapped back to the original node for result import.
+
+Unsupported offset settings display a dialog explaining why Code_Aster
+was not started, as well as recording the reason in the bridge log.
 
 ## Current limits
 
@@ -78,3 +88,11 @@ reference-node reaction moment is zero. The six constrained-model
 frequencies agree with the independent calculation to better than 0.001%.
 These checks validate the tested formulations and boundary conditions;
 convergence and model-specific checks remain necessary for new models.
+
+The offset/release combination was also checked with two 1 m rectangular
+beam spans, fixed outer ends, a V/W release at their junction, a 180 mm
+global-Z offset and a 100 N global-Y junction force. Code_Aster 17.4 and
+Mecway 34 agreed on all original-node displacements, rotations and support
+reactions (largest displacement difference below 1e-15 m). The combined
+ordinary-modal case ran with eight positive modes; this is a run check,
+not a native Mecway modal-offset equivalence check.

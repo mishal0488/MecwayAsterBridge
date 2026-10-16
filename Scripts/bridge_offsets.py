@@ -15,7 +15,11 @@ from bridge_utils import CONFIG_BRIDGE, get_active_analysis, log, parse_and_conv
 def read_vector(item):
     """Reject expressions/unknown units instead of silently treating them as zero."""
     values = []
-    for name in ('u', 'v', 'w'):
+    local = any(item.find(c) is not None for c in ('u', 'v', 'w'))
+    global_axes = any(item.find(c) is not None for c in ('x', 'y', 'z'))
+    if local and global_axes:
+        return (float('nan'),) * 3
+    for name in (('x', 'y', 'z') if global_axes else ('u', 'v', 'w')):
         children = item.findall(name)
         text = item.findtext(name, '0 m').strip()
         match = re.match(r'^[-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?\s*(m|mm|cm|km|in|inch|ft|um)?$', text)
@@ -34,6 +38,7 @@ def prepare(md, axis_function):
         md['offsets_prepared'] = True
         return True
     except ValueError as err:
+        md['preparation_error'] = 'Beam offsets: ' + str(err)
         log('ERROR: Beam offsets: ' + str(err))
         return False
 
@@ -58,6 +63,7 @@ def _prepare(md, axis_function):
         raise ValueError('disable modal prestress and complex modes for offset beams.')
     elements = dict((e[0], e) for e in md['mesh_elements'])
     selected = {}
+    frames = {}
     for item in md['beam_offsets']:
         ids = md['element_selections'].get(item['selection'])
         if ids is None:
@@ -73,6 +79,7 @@ def _prepare(md, axis_function):
             if not all(isinstance(x, (int, float)) and not math.isnan(x) and not math.isinf(x) for x in item['vector']):
                 raise ValueError('offsets must be finite constant lengths.')
             selected[eid] = item['vector']
+            frames[eid] = item.get('frame', 'local')
     for bc in md['bcs']:
         selection = bc.get('selection')
         affected = set(md.get('element_selections', {}).get(selection, []))
@@ -82,7 +89,8 @@ def _prepare(md, axis_function):
             raise ValueError('use node selections for loads/supports in offset models (selection %r).' % selection)
     coords = dict(md['mesh_nodes'])
     next_node = max(coords) + 1
-    aliases, refs, equations, changed = {}, set(), [], []
+    aliases = dict(md.get('offset_node_aliases', {}))
+    refs, equations, changed = set(), [], []
     for eid, shape, nodes, group in md['mesh_elements']:
         if eid not in selected or not any(selected[eid]):
             changed.append((eid, shape, nodes, group))
@@ -94,14 +102,15 @@ def _prepare(md, axis_function):
         u = tuple((q[i]-p[i])/length for i in range(3))
         v = axis_function(p, q, md['beam_orientations'].get(eid))
         w = (u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0])
-        r = tuple(sum(selected[eid][j]*a[i] for j, a in enumerate((u, v, w))) for i in range(3))
+        r = (tuple(selected[eid]) if frames[eid] == 'global' else
+             tuple(sum(selected[eid][j]*a[i] for j, a in enumerate((u, v, w))) for i in range(3)))
         new_nodes = []
         for old in nodes:
             new = next_node
             next_node += 1
             coords[new] = tuple(coords[old][i]+r[i] for i in range(3))
             new_nodes.append(new)
-            aliases[new] = old
+            aliases[new] = aliases.get(old, old)
             refs.add(old)
             # u_new = u_reference + theta_reference cross r.
             cross = ((0, r[2], -r[1]), (-r[2], 0, r[0]), (r[1], -r[0], 0))
