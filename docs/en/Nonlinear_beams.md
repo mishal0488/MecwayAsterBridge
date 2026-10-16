@@ -122,3 +122,7 @@ References checked against Code_Aster 17.4:
 - [Nonlinear behaviour documentation](https://codeaster.gitlab.io/doc/docaster/manuals/man_u/u4/u4.51.11/Mot_cl__COMPORTEMENT.html)
 
 For linear static and ordinary modal beam offsets, see [Beam offsets](Beam_offsets.md). Large-rotation offsets are not supported.
+
+Exact full U+V+W end releases (spherical joints) are supported without offsets;
+selective nonlinear releases remain unsupported. See [Beam releases](Beam_releases.md)
+and the [investigation](Nonlinear_release_investigation.md).

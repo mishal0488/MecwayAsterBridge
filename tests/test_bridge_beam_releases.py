@@ -103,6 +103,28 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(md['offset_equations']),240)
         self.assertTrue(writer.generate_AsterSolver_files(self.tmp.name,md,path,'combined'),self.logs)
 
+    def test_nonlinear_spherical_joint_and_selective_guards(self):
+        import itertools
+        u.CONFIG_BRIDGE.update(active_analysis='nonlin_static_3d',elem_beam='POU_D_T_GD')
+        u.CONFIG_BRIDGE['analyses']['nonlin_static_3d']['deformation']='GROT_GDEP'
+        for size in (1,2):
+            for axes in itertools.combinations(('u','v','w'),size):
+                md=self.parse(axes)
+                before=copy.deepcopy(md['mesh_nodes']),copy.deepcopy(md['mesh_elements'])
+                self.assertFalse(releases.prepare(md,mesh._mecway_v_axis),axes)
+                self.assertIn('Selective releases',md['preparation_error'])
+                self.assertEqual((md['mesh_nodes'],md['mesh_elements']),before)
+        md=self.parse(('u','v','w'))
+        path=os.path.join(self.tmp.name,'sphere.mail')
+        self.assertTrue(mesh.write_mesh(path,md),self.logs)
+        self.assertEqual(len(md['release_equations']),3)
+        self.assertTrue(all(d in ('DX','DY','DZ') for eq in md['release_equations'] for n,d,c in eq['terms']))
+        self.assertTrue(writer.generate_AsterSolver_files(self.tmp.name,md,path,'sphere'),self.logs)
+        md=self.parse(('u','v','w'))
+        md['beam_offsets']=[{'selection':'Beam','vector':(0,0,.1)}]
+        self.assertFalse(releases.prepare(md,mesh._mecway_v_axis))
+        self.assertIn('no offsets',md['preparation_error'])
+
     def test_unsupported_joint_parameters_not_silently_ignored(self):
         text=model().xml().replace('<rotv />','<rotv>123</rotv>')
         self.assertIsNone(self.parse(text=text))

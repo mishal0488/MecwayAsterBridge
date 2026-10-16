@@ -2,7 +2,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
-"""Linear beam-end rotational releases at connected beam junctions."""
+"""Linear rotational releases and exact nonlinear spherical beam joints."""
 import math
 from bridge_utils import CONFIG_BRIDGE, get_active_analysis, log
 
@@ -25,8 +25,11 @@ def _prepare(md, axis_function):
     import bridge_xfem
     analysis = bridge_custom.apply_options(
         get_active_analysis(), md.get('aster_custom', {}).get('options', {}))
-    if CONFIG_BRIDGE['active_analysis'] not in ('lin_static_3d', 'modal_3d'):
-        raise ValueError('supported in linear static and modal 3D only.')
+    nonlinear = CONFIG_BRIDGE['active_analysis'] == 'nonlin_static_3d'
+    if CONFIG_BRIDGE['active_analysis'] not in ('lin_static_3d', 'modal_3d', 'nonlin_static_3d'):
+        raise ValueError('supported in linear static, modal and restricted nonlinear static 3D only.')
+    if nonlinear and (analysis.get('deformation') != 'GROT_GDEP' or md.get('beam_offsets')):
+        raise ValueError('nonlinear releases require GROT_GDEP and no offsets.')
     if CONFIG_BRIDGE.get('result_route', 'liml') != 'liml':
         raise ValueError('select the LIML results route.')
     if (md.get('shell_upgrades') or
@@ -37,6 +40,7 @@ def _prepare(md, axis_function):
         raise ValueError('mesh upgrades, contact/couplings, cyclic, complex modes, adaptive refinement and XFEM are not supported together with releases.')
     elements = dict((e[0], e) for e in md['mesh_elements'])
     selected = {}
+    allowed = ('POU_D_T_GD',) if nonlinear else ('POU_D_E', 'POU_D_T')
     for item in md['beam_releases']:
         faces = md.get('face_selection_faces', {}).get(item['selection'])
         if not faces:
@@ -44,10 +48,12 @@ def _prepare(md, axis_function):
         for eid, face in faces:
             e = elements.get(eid)
             if (not e or e[1] != 'line2' or face not in (2, 3) or
-                    md['elset_modelisations'].get(e[3]) not in ('POU_D_E', 'POU_D_T')):
-                raise ValueError('release on element %s must be an end face of a line2 POU_D_E/POU_D_T beam.' % eid)
+                    md['elset_modelisations'].get(e[3]) not in allowed):
+                raise ValueError('release on element %s must be an end face of a line2 %s beam.' % (eid, '/'.join(allowed)))
             selected.setdefault((eid, face - 2), set()).update(item['axes'])
     selected = dict((k, v) for k, v in selected.items() if v)
+    if nonlinear and any(axes != set(('u', 'v', 'w')) for axes in selected.values()):
+        raise ValueError('geometric nonlinear analysis currently supports only full U/V/W releases (spherical joints). Selective releases need finite-rotation joint constraints; no approximation is substituted.')
     # Retained reference-node rotations must belong to a real, unreleased
     # beam end. Otherwise unused rotational DOFs need separate elimination.
     unreleased = set()
@@ -108,4 +114,6 @@ def _prepare(md, axis_function):
     # released ends: element identity is retained and reactions are summed.
     md['offset_node_aliases'] = aliases
     md['release_equations'] = equations
+    if nonlinear:
+        log('INFO: Exact nonlinear spherical joints: coincident translations tied; all relative rotations free.')
     log('INFO: Beam end releases: %s independent beam ends; translations and unreleased local rotations tied exactly.' % len(aliases))
