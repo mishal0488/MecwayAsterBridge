@@ -123,6 +123,7 @@ References checked against Code_Aster 17.4:
 
 For linear static and ordinary modal beam offsets, see [Beam offsets](Beam_offsets.md). Large-rotation offsets are not supported.
 
-Exact full U+V+W end releases (spherical joints) are supported without offsets;
-selective nonlinear releases remain unsupported. See [Beam releases](Beam_releases.md)
+Exact full U+V+W end releases (spherical joints) and custom combined V+W
+zero-relative-twist joints are supported without offsets. Other selective
+nonlinear releases remain unsupported. See [Beam releases](Beam_releases.md)
 and the [investigation](Nonlinear_release_investigation.md).

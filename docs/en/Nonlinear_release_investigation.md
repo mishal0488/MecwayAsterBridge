@@ -1,12 +1,13 @@
 # Exact nonlinear beam releases, without offsets
 
-Investigation: Code_Aster 17.4, 16 October 2026. Scope: static elastic
+Updated: Code_Aster 17.4, 19 October 2026. Scope: static elastic
 POU_D_T_GD beams in general 3D finite rotations; ideal connections only.
 
 | Released local rotations | Bridge result |
 | --- | --- |
 | U, V, W (each individually) | No validated exact native implementation found; rejected |
-| UV, UW, VW | No validated exact native implementation found; rejected |
+| UV, UW | No validated exact native implementation found; rejected |
+| VW | Custom exact zero-relative-twist constraint implemented; see below |
 | UVW | Exact coincident-translation constraint implemented and benchmarked |
 
 ## Findings
@@ -57,15 +58,32 @@ pure-torsion case gives pi/2 rotation on the loaded side and zero twist on
 the released side. Raw nodal moments at the released end vanish; nodal
 translations coincide and support reactions balance applied forces.
 
-Translation regression tests cover rejection of every selective combination,
-acceptance of UVW, command generation and rejection of nonlinear offsets.
+Translation regression tests cover rejection of the unsupported selective combinations,
+acceptance of UVW and custom VW, command generation and rejection of nonlinear offsets.
 The existing linear and modal release cases remain supported.
 
-## Remaining work for selective releases
+## Custom V/W implementation
+
+`aster_vw_joint.py` now supplies the missing nonlinear constraint iteration.
+It updates native multiplier constraints from quaternion relative orientation
+at each requested load increment and verifies both the constraint and moment
+equilibrium. It preserves only accepted states and their native load metadata
+for result recovery. It adds no spring stiffness or connection length.
+The finite-rotation convention, tolerances, exclusions, numerical checks and
+load-step refinement results are documented in [Beam releases](Beam_releases.md).
+
+Direct imposed-rotation condensation was investigated but rejected after
+compound-load convergence failures. The production approach leaves the beam
+rotations to the native solver, retaining one updated multiplier constraint
+per V/W joint. The successful implementation therefore does not remove the
+earlier warning against using fixed-axis linear ties for nonlinear joints.
+
+## Remaining work for other selective releases
 
 A dedicated nonlinear constraint integration must define the relative
 orientation convention for each joint, consistent residuals and Jacobians,
 constraint tangent contributions, and reaction recovery with the solver's
 finite-rotation updates. It must then pass moving-frame and compound-rotation
 tests, as well as force and moment equilibrium and independent frame
-benchmarks. This work is not implemented by the UVW addition.
+benchmarks. The V/W convention does not automatically generalize to the five
+other selective combinations, which remain rejected.

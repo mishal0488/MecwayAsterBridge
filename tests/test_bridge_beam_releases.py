@@ -109,10 +109,12 @@ class ReleaseTests(unittest.TestCase):
         u.CONFIG_BRIDGE['analyses']['nonlin_static_3d']['deformation']='GROT_GDEP'
         for size in (1,2):
             for axes in itertools.combinations(('u','v','w'),size):
+                if axes == ('v','w'):
+                    continue
                 md=self.parse(axes)
                 before=copy.deepcopy(md['mesh_nodes']),copy.deepcopy(md['mesh_elements'])
                 self.assertFalse(releases.prepare(md,mesh._mecway_v_axis),axes)
-                self.assertIn('Selective releases',md['preparation_error'])
+                self.assertIn('other selective releases',md['preparation_error'])
                 self.assertEqual((md['mesh_nodes'],md['mesh_elements']),before)
         md=self.parse(('u','v','w'))
         path=os.path.join(self.tmp.name,'sphere.mail')
@@ -121,6 +123,26 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(all(d in ('DX','DY','DZ') for eq in md['release_equations'] for n,d,c in eq['terms']))
         self.assertTrue(writer.generate_AsterSolver_files(self.tmp.name,md,path,'sphere'),self.logs)
         md=self.parse(('u','v','w'))
+        md['beam_offsets']=[{'selection':'Beam','vector':(0,0,.1)}]
+        self.assertFalse(releases.prepare(md,mesh._mecway_v_axis))
+        self.assertIn('no offsets',md['preparation_error'])
+
+    def test_nonlinear_vw_uses_finite_rotation_solver_not_fixed_axis_tie(self):
+        u.CONFIG_BRIDGE.update(active_analysis='nonlin_static_3d',elem_beam='POU_D_T_GD')
+        u.CONFIG_BRIDGE['analyses']['nonlin_static_3d']['deformation']='GROT_GDEP'
+        md=self.parse(('v','w'))
+        md['elset_modelisations']['EmptyComponent']='3D'
+        path=os.path.join(self.tmp.name,'vw.mail')
+        self.assertTrue(mesh.write_mesh(path,md),self.logs)
+        self.assertEqual(md['nonlinear_vw_joints'],[dict(reference=11,end=22,axis=(1.,0.,0.))])
+        self.assertEqual(len(md['release_equations']),3)
+        self.assertTrue(writer.generate_AsterSolver_files(self.tmp.name,md,path,'vw'),self.logs)
+        with open(os.path.join(self.tmp.name,u.run_name('.comm'))) as f: text=f.read()
+        compile(text,'vw.comm','exec')
+        self.assertIn('res = solve_vw_joints(',text)
+        self.assertNotIn('BRIDGE_ONVOLLEDIG',text)
+        self.assertNotIn("MODELISATION='DIS_TR'",text)
+        md=self.parse(('v','w'))
         md['beam_offsets']=[{'selection':'Beam','vector':(0,0,.1)}]
         self.assertFalse(releases.prepare(md,mesh._mecway_v_axis))
         self.assertIn('no offsets',md['preparation_error'])

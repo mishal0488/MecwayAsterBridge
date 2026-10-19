@@ -2,7 +2,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
-"""Linear rotational releases and exact nonlinear spherical beam joints."""
+"""Linear releases and exact nonlinear spherical / zero-twist V/W joints."""
 import math
 from bridge_utils import CONFIG_BRIDGE, get_active_analysis, log
 
@@ -52,8 +52,18 @@ def _prepare(md, axis_function):
                 raise ValueError('release on element %s must be an end face of a line2 %s beam.' % (eid, '/'.join(allowed)))
             selected.setdefault((eid, face - 2), set()).update(item['axes'])
     selected = dict((k, v) for k, v in selected.items() if v)
-    if nonlinear and any(axes != set(('u', 'v', 'w')) for axes in selected.values()):
-        raise ValueError('geometric nonlinear analysis currently supports only full U/V/W releases (spherical joints). Selective releases need finite-rotation joint constraints; no approximation is substituted.')
+    if nonlinear and any(axes not in (set(('u','v','w')), set(('v','w'))) for axes in selected.values()):
+        raise ValueError('geometric nonlinear analysis supports full U/V/W releases and combined V/W releases only; other selective releases need different finite-rotation constraints.')
+    custom_vw = nonlinear and any(axes == set(('v','w')) for axes in selected.values())
+    if custom_vw:
+        if any(md['elset_modelisations'].get(e[3]) != 'POU_D_T_GD'
+               for e in md['mesh_elements']):
+            raise ValueError('custom nonlinear V/W joints currently require a beam-only POU_D_T_GD model.')
+        custom = md.get('aster_custom', {})
+        if (analysis.get('crit_stab') or analysis.get('imperfection_amplitude') or
+                md.get('thermal_stress') is not None or
+                any(custom.get(k) for k in ('code','excit','post','failure','fatigue','welding','phases','metallurgy'))):
+            raise ValueError('custom nonlinear V/W joints support elastic static mechanical loading only, without stability extraction, automatic imperfections, thermal histories or custom analysis code.')
     # Retained reference-node rotations must belong to a real, unreleased
     # beam end. Otherwise unused rotational DOFs need separate elimination.
     unreleased = set()
@@ -71,7 +81,7 @@ def _prepare(md, axis_function):
             raise ValueError('use node selections for loads/supports on released beam ends.')
     coords = dict(md['mesh_nodes'])
     new = max(coords) + 1
-    aliases, equations, changed = {}, [], []
+    aliases, equations, changed, vw_joints = {}, [], [], []
     for eid, shape, nodes, group in md['mesh_elements']:
         ends = list(nodes)
         if any((eid, end) in selected for end in range(len(nodes))):
@@ -99,7 +109,12 @@ def _prepare(md, axis_function):
                 ends[end] = new
                 for dof in ('DX', 'DY', 'DZ'):
                     equations.append({'terms': [(new, dof, 1.), (old, dof, -1.)], 'constant': 0.})
+                is_vw = nonlinear and released == set(('v','w'))
+                if is_vw:
+                    vw_joints.append({'reference': old, 'end': new, 'axis': u})
                 for name, axis in zip(('u', 'v', 'w'), (u, v, w)):
+                    if is_vw:
+                        continue  # Nonlinear quaternion constraint, never a fixed-axis tie.
                     if name not in released:
                         terms = []
                         for dof, c in zip(('DRX', 'DRY', 'DRZ'), axis):
@@ -114,6 +129,9 @@ def _prepare(md, axis_function):
     # released ends: element identity is retained and reactions are summed.
     md['offset_node_aliases'] = aliases
     md['release_equations'] = equations
-    if nonlinear:
+    if vw_joints:
+        md['nonlinear_vw_joints'] = vw_joints
+        log('INFO: Custom exact nonlinear V/W joints: translations coincide, two swing freedoms, zero relative swing-twist torsion. Only converged joint states are exported; check load-step refinement.')
+    elif nonlinear:
         log('INFO: Exact nonlinear spherical joints: coincident translations tied; all relative rotations free.')
     log('INFO: Beam end releases: %s independent beam ends; translations and unreleased local rotations tied exactly.' % len(aliases))

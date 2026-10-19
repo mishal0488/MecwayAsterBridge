@@ -5462,6 +5462,29 @@ def _build_nonlin_static(work_dir, model_data, msh_path, resu_name, analysis):
         solveur      = _indent(_build_solveur_ref(analysis)),
     )
 
+    if model_data.get("nonlinear_vw_joints"):
+        # The runtime retains only states satisfying the nonlinear joint
+        # constraint; an inner/outer failure must never export trial states.
+        statnonline_block = (
+            "import sys\n"
+            "sys.path.insert(0, {scripts})\n"
+            "from aster_vw_joint import solve as solve_vw_joints\n"
+            "res = solve_vw_joints({joints!r}, list(times.getValues()),\n"
+            "    MODELE=model, CHAM_MATER=fieldmat,\n"
+            "{cara}{excit}\n{comp}"
+            "    INCREMENT=_F(LIST_INST=listinst),\n"
+            "{solveur}"
+            "    NEWTON=_F(REAC_ITER={reac}),\n"
+            "    CONVERGENCE=_F(RESI_GLOB_RELA=1.e-8, RESI_GLOB_MAXI=1.e-5, "
+            "VERIF='AU_MOINS_UN', ITER_GLOB_MAXI={iterations}),\n"
+            ")\n"
+            "t_res = res.getAccessParameters()['INST'][-1]\n"
+        ).format(scripts=_py_str(os.path.dirname(os.path.abspath(__file__))),
+                 joints=model_data['nonlinear_vw_joints'],cara=cara_elem_ref,
+                 excit=excit_clause,comp=comportement_block,
+                 solveur=_build_solveur_ref(analysis),reac=reac_iter,
+                 iterations=analysis.get('newton_max_iter',50))
+
     # --------------------------------------------------
     # BEZWIJKEN VAN ELEMENTEN (bridge_failure.py): een lus over de
     # tijdstappen in plaats van een enkele STAT_NON_LINE.
